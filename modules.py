@@ -1,3 +1,11 @@
+__author__ = "Alexander Frotscher"
+__email__ = "alexander.frotscher@student.uni-tuebingen.de"
+
+"""
+This code is based on @dome272 implementation of DDPM's
+https://github.com/dome272/Diffusion-Models-pytorch
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

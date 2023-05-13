@@ -1,3 +1,11 @@
+__author__ = "Alexander Frotscher"
+__email__ = "alexander.frotscher@student.uni-tuebingen.de"
+
+"""
+This code is based on @dome272 implementation of DDPM's
+https://github.com/dome272/Diffusion-Models-pytorch
+"""
+
 import argparse
 import copy
 import logging
@@ -13,6 +21,7 @@ from tqdm import tqdm
 import wandb
 from modules import *
 from utils import *
+
 
 logging.basicConfig(format="%(message)s", level=logging.INFO)
 
@@ -112,7 +121,49 @@ class Diffusion:
                 alpha_hat = self.alpha_hat[t][:, None, None, None]
                 x = torch.sqrt(alpha_hat_minus_one) * (
                     (x - torch.sqrt(1 - alpha_hat_minus_one) * predicted_noise)
-                    / (alpha_hat)
+                    / torch.sqrt(alpha_hat)
+                ) + (torch.sqrt(1 - alpha_hat_minus_one) * predicted_noise)
+        model.train()
+        x = (
+            x.clamp(-1, 1) + 1
+        ) / 2  # other code uses permute, why, is clamping the sampled image ok?
+        x = (x * 255).type(torch.uint8)
+        return x
+
+    def create_latent(self, x, model):
+        logging.info(f"Creating {x.shape[0]} new latents....")
+        model.eval()
+        with torch.no_grad():
+            for i in tqdm(range(1, self.noise_steps), position=0):
+                t = (torch.ones(x.shape[0]) * i).long().to(self.device)
+                predicted_noise = model(x, t, None)
+                alpha_hat_plus_one = self.alpha_hat[t + 1][:, None, None, None]
+                alpha_hat = self.alpha_hat[t][:, None, None, None]
+                x = torch.sqrt(alpha_hat_plus_one) * (
+                    (x - torch.sqrt(1 - alpha_hat) * predicted_noise)
+                    / torch.sqrt(alpha_hat)
+                ) + (torch.sqrt(alpha_hat_plus_one) * predicted_noise)
+        return x
+
+    def reconstruction(self, model, latents, labels, cfg_scale=0):
+        logging.info(f"Sampling {latents.shape[0]} new images....")
+        model.eval()
+        with torch.no_grad():
+            for i in tqdm(
+                reversed(np.linspace(1, 1000 - 1, 250).astype(int)), position=0
+            ):
+                t = (torch.ones(latents.shape[0]) * i).long().to(self.device)
+                predicted_noise = model(latents, t, labels)
+                if cfg_scale > 0:
+                    uncond_predicted_noise = model(x, t, None)
+                    predicted_noise = torch.lerp(
+                        uncond_predicted_noise, predicted_noise, cfg_scale
+                    )
+                alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
+                alpha_hat = self.alpha_hat[t][:, None, None, None]
+                x = torch.sqrt(alpha_hat_minus_one) * (
+                    (x - torch.sqrt(1 - alpha_hat_minus_one) * predicted_noise)
+                    / torch.sqrt(alpha_hat)
                 ) + (torch.sqrt(1 - alpha_hat_minus_one) * predicted_noise)
         model.train()
         x = (
@@ -194,9 +245,9 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "DDIM_test"
-    args.epochs = 51
-    args.batch_size = 52
+    args.run_name = "diffusion_test"
+    args.epochs = 101
+    args.batch_size = 128
     args.image_size = 32
     args.num_classes = 10
     args.dataset_path = ""

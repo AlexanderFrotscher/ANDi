@@ -1,3 +1,11 @@
+__author__ = "Alexander Frotscher"
+__email__ = "alexander.frotscher@student.uni-tuebingen.de"
+
+"""
+This code is based on @dome272 implementation of DDPM's
+https://github.com/dome272/Diffusion-Models-pytorch
+"""
+
 import os
 
 import torch
@@ -59,8 +67,8 @@ def cifar_10(args):
             transforms.Resize(args.image_size),
             transforms.RandomHorizontalFlip(0.4),
             transforms.ToTensor(),  # divide by 255
-            # transforms.Lambda(lambda x: (x * 2) - 1),  bring to [-1,1] but does not work on windows
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            transforms.Lambda(lambda x: (x * 2) - 1),  # bring to [-1,1] but does not work on windows
+            #transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ]
     )
     ds_train = datasets.CIFAR10(
