@@ -15,6 +15,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from accelerate import Accelerator
+from accelerate import DistributedDataParallelKwargs
 from torch import optim
 from tqdm import tqdm
 
@@ -175,7 +176,8 @@ class Diffusion:
 
 def train(args):
     make_dicts(args.run_name)
-    accelerator = Accelerator(find_unused_parameters=True)
+    kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
     dataloader = cifar_10(args)
     model = UNet_conditional(num_classes=args.num_classes, device=device)
