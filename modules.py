@@ -17,12 +17,12 @@ class EMA:
         self.beta = beta
         self.step = 0
 
-    def update_model_average(self, ma_model, current_model):
-        for current_params, ma_params in zip(
-            current_model.parameters(), ma_model.parameters()
+    def update_model_average(self, ema_model, current_model):
+        for current_params, ema_params in zip(
+            current_model.parameters(),ema_model.parameters()
         ):
-            old_weight, up_weight = ma_params.data, current_params.data
-            ma_params.data = self.update_average(old_weight, up_weight)
+            old_weight, up_weight = ema_params.data, current_params.data
+            ema_params.data = self.update_average(old_weight, up_weight)
 
     def update_average(self, old, new):
         if old is None:
@@ -38,7 +38,10 @@ class EMA:
         self.step += 1
 
     def reset_parameters(self, ema_model, model):
-        ema_model.load_state_dict(model.state_dict())
+        if type(model) in (nn.parallel.DataParallel, nn.parallel.DistributedDataParallel):  # checks multiprocessing/multi-GPU's
+            ema_model.load_state_dict(model.module.state_dict())
+        else:
+            ema_model.load_state_dict(model.state_dict())
 
 
 class SelfAttention(nn.Module):
