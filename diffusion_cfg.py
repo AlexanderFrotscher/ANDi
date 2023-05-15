@@ -175,7 +175,7 @@ class Diffusion:
 
 def train(args):
     make_dicts(args.run_name)
-    accelerator = Accelerator()
+    accelerator = Accelerator(find_unused_parameters=True)
     device = accelerator.device
     dataloader = cifar_10(args)
     model = UNet_conditional(num_classes=args.num_classes, device=device)
