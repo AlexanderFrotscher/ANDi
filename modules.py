@@ -136,7 +136,7 @@ class Up(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, c_in=3, c_out=3, img_size=32, time_dim=256, device="cuda"):
+    def __init__(self, c_in=4, c_out=4, img_size=64, time_dim=256, device="cuda"):
         super().__init__()
         self.device = device
         self.time_dim = time_dim
@@ -201,9 +201,9 @@ class UNet(nn.Module):
 class UNet_conditional(UNet):
     def __init__(
         self,
-        c_in=3,
-        c_out=3,
-        img_size=32,
+        c_in=4,
+        c_out=4,
+        img_size=64,
         time_dim=256,
         num_classes=None,
         device="cuda",

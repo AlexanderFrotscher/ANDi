@@ -28,7 +28,7 @@ logging.basicConfig(format="%(message)s", level=logging.INFO)
 
 
 class Diffusion:
-    def __init__(self, noise_steps=1000, img_size=32, device="cuda"):
+    def __init__(self, noise_steps=1000, img_size=64, device="cuda"):
         self.noise_steps = noise_steps
 
         self.beta = self.linear_noise_schedule().to(device)
@@ -180,7 +180,8 @@ def train(args):
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
     dataloader = cifar_10(args)
-    model = UNet_conditional(num_classes=args.num_classes, device=device)
+    #model = UNet_conditional(num_classes=args.num_classes, device=device)
+    model = UNet(device=device)
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
     mse = nn.MSELoss()
     diffusion = Diffusion(img_size=args.image_size, device=device)
@@ -196,14 +197,15 @@ def train(args):
         pbar = tqdm(dataloader)
         for i, (images, labels) in enumerate(pbar):
             images = images.to(device)
-            labels = labels.to(device)
+            #labels = labels.to(device)
             t = diffusion.sample_timesteps(images.shape[0]).to(
                 device
             )  # every picture gets one timestep in one epoch
             x_t, noise = diffusion.noise_images(images, t)
-            if np.random.random() < 0.1:
-                labels = None
-            predicted_noise = model(x_t, t, labels)
+            #if np.random.random() < 0.1:
+            #    labels = None
+            #predicted_noise = model(x_t, t, labels)
+            predicted_noise = model(x_t, t)
             loss = mse(noise, predicted_noise)
 
             optimizer.zero_grad()
@@ -213,47 +215,52 @@ def train(args):
 
             wandb.log({"MSE": loss.item()})
 
-        if epoch % 10 == 0:
-            labels = torch.arange(args.num_classes).long().to(device)
-            torch.save(
-                model.state_dict(), os.path.join("models", args.run_name, f"ckpt.pt")
+        if epoch % 10 == 0 and accelerator.is_main_process:
+            my_model = accelerator.unwrap_model(model)
+            my_ema_model = accelerator.unwrap_model(ema_model)
+            #labels = torch.arange(args.num_classes).long().to(device)
+            labels = None
+            n = 5
+            accelerator.save(
+                my_model.state_dict(), os.path.join("models", args.run_name, f"ckpt.pt")
             )
-            torch.save(
+            accelerator.save(
                 optimizer.state_dict(),
                 os.path.join("models", args.run_name, f"optim.pt"),
             )
             ema_sampled_images = diffusion.sample(
-                ema_model, n=len(labels), labels=labels
+                ema_model, n=n, labels=labels
             )
             save_images(
                 ema_sampled_images,
                 os.path.join("results", args.run_name, f"{epoch}_ema.jpg"),
             )
-            torch.save(
-                ema_model.state_dict(),
+            accelerator.save(
+                my_ema_model.state_dict(),
                 os.path.join("models", args.run_name, f"ema_ckpt.pt"),
             )
-            torch.save(
-                ema_model.state_dict(), os.path.join(wandb.run.dir, f"ema_ckpt.pt")
+            accelerator.save(
+                my_ema_model.state_dict(), os.path.join(wandb.run.dir, f"ema_ckpt.pt")
             )
             wandb.save(os.path.join(wandb.run.dir, "ema_ckpt.pt"))
 
-            ddim_ema = diffusion.ddim_sample(ema_model, n=len(labels), labels=labels)
+            #ddim_ema = diffusion.ddim_sample(ema_model, n=len(labels), labels=labels)
             example_images = wandb.Image(upload_images(ema_sampled_images))
-            ddim_images = wandb.Image(upload_images(ddim_ema))
-            wandb.log({"EMA-DDPM": example_images, "EMA-DDIM": ddim_images})
+            #ddim_images = wandb.Image(upload_images(ddim_ema))
+            wandb.log({"EMA-DDPM": example_images})
 
 
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "diffusion_test"
-    args.epochs = 101
-    args.batch_size = 128
-    args.image_size = 32
-    args.num_classes = 10
-    args.dataset_path = ""
+    args.run_name = "Diffusion_BraTS2020"
+    args.epochs = 1001
+    args.batch_size = 64
+    args.image_size = 64
+    args.num_classes = None # 116
+    args.dataset_path = '/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData'
     args.lr = 3e-4
+    args.path_to_csv = '/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData/healthy_slices.csv'
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )

@@ -8,11 +8,14 @@ https://github.com/dome272/Diffusion-Models-pytorch
 
 import os
 
+import nibabel as nib
+import numpy as np
+import pandas as pd
 import torch
 import torchvision
 from matplotlib import pyplot as plt
 from PIL import Image
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
 
@@ -46,7 +49,7 @@ def upload_images(images, **kwargs):
 
 def get_data(args):
     """
-    For local data
+    For local image folders
     """
     my_transforms = transforms.Compose(
         [
@@ -67,8 +70,10 @@ def cifar_10(args):
             transforms.Resize(args.image_size),
             transforms.RandomHorizontalFlip(0.4),
             transforms.ToTensor(),  # divide by 255
-            transforms.Lambda(lambda x: (x * 2) - 1),  # bring to [-1,1] but does not work on windows
-            #transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            transforms.Lambda(
+                lambda x: (x * 2) - 1
+            ),  # bring to [-1,1] but does not work on windows
+            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ]
     )
     ds_train = datasets.CIFAR10(
@@ -78,6 +83,88 @@ def cifar_10(args):
         ds_train, batch_size=args.batch_size, num_workers=2, shuffle=True
     )
     return dl_train
+
+
+"""
+This class is based on https://www.kaggle.com/code/polomarco/brats20-3dunet-3dautoencoder
+"""
+
+
+class BratsDataset(Dataset):
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        my_transforms: transforms,
+        dataset_path: str,
+    ):
+        self.df = df
+        self.transforms = my_transforms
+        self.dataset_path = dataset_path
+        self.data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
+
+    def __len__(self):
+        return self.df.shape[0]
+
+    def __getitem__(self, idx):
+        id_ = self.df.loc[idx, "Brats20ID"]
+        images = []
+        age = self.df.loc[idx, "Age"]
+        slice = self.df.loc[idx, "Slice"]
+        for data_type in self.data_types:
+            img_path = os.path.join(self.dataset_path, id_ + data_type)
+            img = nib.load(img_path).get_fdata()
+            images.append(img[:, :, slice])
+
+        img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(dim=0)
+        img = self.normalize(img)
+        img = self.transforms(img)
+
+        return {
+            "image": img
+        }
+
+        """
+        return {
+            "image": img,
+            "label": slice,
+        }
+        """
+
+
+    """
+    This function is from https://github.com/AntanasKascenas/DenoisingAE
+    """
+
+    def normalize(self, images):
+        """
+        Normalise the intensity values in each modality by scaling by 99 percentile foreground (nonzero) value.
+        """
+        for modality in range(images.shape[1]):
+            i_ = images[:, modality, :, :].reshape(-1)
+            i_ = i_[i_ > 0]
+            p_99 = torch.quantile(i_, 0.99)
+            images[:, modality, :, :] /= p_99
+
+        return images
+
+
+def Brats20(args):
+    my_transforms = transforms.Compose(
+        [
+            transforms.Resize(args.image_size),
+            transforms.RandomHorizontalFlip(0.4),
+            transforms.Lambda(
+                lambda x: (x * 2) - 1
+            ),  # bring to [-1,1] but does not work on windows
+        ]
+    )
+
+    df = pd.read_csv(args.path_to_csv)
+    dataset = BratsDataset(df, my_transforms, args.dataset_path)
+    dataloader = DataLoader(
+        dataset, batch_size=args.batch_size, num_workers=2, shuffle=True
+    )
+    return dataloader
 
 
 def make_dicts(run_name):
