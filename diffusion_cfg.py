@@ -195,7 +195,7 @@ def train(args):
     for epoch in range(args.epochs):
         logging.info(f"Starting epoch {epoch}:")
         pbar = tqdm(dataloader)
-        for i, (images, labels) in enumerate(pbar):
+        for i,images in enumerate(pbar):
             images = images.to(device)
             #labels = labels.to(device)
             t = diffusion.sample_timesteps(images.shape[0]).to(
