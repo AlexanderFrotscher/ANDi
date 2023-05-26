@@ -111,7 +111,7 @@ class BratsDataset(Dataset):
         age = self.df.loc[idx, "Age"]
         slice = self.df.loc[idx, "Slice"]
         for data_type in self.data_types:
-            img_path = os.path.join(self.dataset_path, id_ + data_type)
+            img_path = os.path.join(self.dataset_path, id_, id_ + data_type)
             img = nib.load(img_path).get_fdata()
             images.append(img[:, :, slice])
 

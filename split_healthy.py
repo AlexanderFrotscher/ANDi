@@ -26,7 +26,7 @@ my_ids = []
 my_ages = []
 my_slices = []
 for id,age in zip(ids,ages):
-        img_path = os.path.join(root_path, id + '_seg.nii.gz')
+        img_path = os.path.join(root_path, id, id + '_seg.nii.gz')
         img = load_img(img_path)
         img = preprocess_mask(img)
         for sl in slices:
