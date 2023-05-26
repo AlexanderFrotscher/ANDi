@@ -179,7 +179,7 @@ def train(args):
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
-    dataloader = cifar_10(args)
+    dataloader = Brats20(args)
     #model = UNet_conditional(num_classes=args.num_classes, device=device)
     model = UNet(device=device)
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
