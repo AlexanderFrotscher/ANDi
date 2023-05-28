@@ -34,16 +34,32 @@ def plot_images(images):
     plt.show()
 
 
-def save_images(images, path, **kwargs):
-    grid = torchvision.utils.make_grid(images, **kwargs)
-    ndarr = grid.permute(1, 2, 0).to("cpu").numpy()
-    im = Image.fromarray(ndarr)
-    im.save(path)
+def save_images(images, path, mode = 'RGB', **kwargs):
+    if mode == 'L':  # mode L is greyscale
+        batch_size = images.shape[0]
+        channels = images.shape[1]
+        images = images.reshape((batch_size*channels,1,images.shape[2],images.shape[3]))
+        grid = torchvision.utils.make_grid(images, **kwargs)
+        ndarr = grid.permute(1, 2, 0).to("cpu").numpy()
+        im = Image.fromarray(ndarr)
+        im.save(path) 
+    else:
+        grid = torchvision.utils.make_grid(images, **kwargs)
+        ndarr = grid.permute(1, 2, 0).to("cpu").numpy()
+        im = Image.fromarray(ndarr)
+        im.save(path)
 
 
-def upload_images(images, **kwargs):
-    grid = torchvision.utils.make_grid(images, **kwargs)
-    ndarr = grid.permute(1, 2, 0).to("cpu").numpy()
+def upload_images(images, mode = 'RGB', **kwargs):
+    if mode == 'L':
+        batch_size = images.shape[0]
+        channels = images.shape[1]
+        images = images.reshape((batch_size*channels,1,images.shape[2],images.shape[3]))
+        grid = torchvision.utils.make_grid(images, **kwargs)
+        ndarr = grid.permute(1, 2, 0).to("cpu").numpy()
+    else:
+        grid = torchvision.utils.make_grid(images, **kwargs)
+        ndarr = grid.permute(1, 2, 0).to("cpu").numpy()
     return ndarr
 
 
@@ -117,18 +133,10 @@ class BratsDataset(Dataset):
 
         img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(dim=0)
         img = self.normalize(img)
+        img = img[0].float()
         img = self.transforms(img)
 
-        return {
-            "image": img
-        }
-
-        """
-        return {
-            "image": img,
-            "label": slice,
-        }
-        """
+        return img, age
 
 
     """
@@ -156,6 +164,7 @@ def Brats20(args):
             transforms.Lambda(
                 lambda x: (x * 2) - 1
             ),  # bring to [-1,1] but does not work on windows
+            #transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ]
     )
 

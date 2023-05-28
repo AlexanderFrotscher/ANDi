@@ -65,12 +65,12 @@ class Diffusion:
         return torch.randint(low=1, high=self.noise_steps, size=(n,))
 
     def sample(
-        self, model, n, labels, cfg_scale=3
+        self, model, n, labels, channels , cfg_scale=3
     ):  # cfg scale determines the influence of the conditional model
         logging.info(f"Sampling {n} new images....")
         model.eval()
         with torch.no_grad():
-            x = torch.randn((n, 3, self.img_size, self.img_size)).to(self.device)
+            x = torch.randn((n, channels, self.img_size, self.img_size)).to(self.device)
             for i in tqdm(reversed(range(1, self.noise_steps)), position=0):
                 t = (torch.ones(n) * i).long().to(self.device)
                 predicted_noise = model(x, t, labels)
@@ -106,7 +106,7 @@ class Diffusion:
         logging.info(f"Sampling {n} new images....")
         model.eval()
         with torch.no_grad():
-            x = torch.randn((n, 3, self.img_size, self.img_size)).to(self.device)
+            x = torch.randn((n, 4, self.img_size, self.img_size)).to(self.device)
             for i in tqdm(
                 reversed(np.linspace(1, 1000 - 1, 250).astype(int)), position=0
             ):
@@ -180,8 +180,7 @@ def train(args):
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
     dataloader = Brats20(args)
-    #model = UNet_conditional(num_classes=args.num_classes, device=device)
-    model = UNet(device=device)
+    model = UNet_conditional(c_in = args.channels, c_out= args.channels ,num_classes=args.num_classes, device=device,img_size=args.image_size)
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
     mse = nn.MSELoss()
     diffusion = Diffusion(img_size=args.image_size, device=device)
@@ -195,9 +194,9 @@ def train(args):
     for epoch in range(args.epochs):
         logging.info(f"Starting epoch {epoch}:")
         pbar = tqdm(dataloader)
-        for i,images in enumerate(pbar):
+        for i,(images,labels) in enumerate(pbar):
             images = images.to(device)
-            #labels = labels.to(device)
+            labels = labels.to(device)
             t = diffusion.sample_timesteps(images.shape[0]).to(
                 device
             )  # every picture gets one timestep in one epoch
@@ -205,7 +204,7 @@ def train(args):
             #if np.random.random() < 0.1:
             #    labels = None
             #predicted_noise = model(x_t, t, labels)
-            predicted_noise = model(x_t, t)
+            predicted_noise = model(x_t, t,None)
             loss = mse(noise, predicted_noise)
 
             optimizer.zero_grad()
@@ -229,11 +228,12 @@ def train(args):
                 os.path.join("models", args.run_name, f"optim.pt"),
             )
             ema_sampled_images = diffusion.sample(
-                ema_model, n=n, labels=labels
+                ema_model, n=n, labels=labels, channels=args.channels
             )
             save_images(
                 ema_sampled_images,
                 os.path.join("results", args.run_name, f"{epoch}_ema.jpg"),
+                mode='L'
             )
             accelerator.save(
                 my_ema_model.state_dict(),
@@ -244,9 +244,7 @@ def train(args):
             )
             wandb.save(os.path.join(wandb.run.dir, "ema_ckpt.pt"))
 
-            #ddim_ema = diffusion.ddim_sample(ema_model, n=len(labels), labels=labels)
-            example_images = wandb.Image(upload_images(ema_sampled_images))
-            #ddim_images = wandb.Image(upload_images(ddim_ema))
+            example_images = wandb.Image(upload_images(ema_sampled_images,mode='L'))
             wandb.log({"EMA-DDPM": example_images})
 
 
@@ -257,10 +255,13 @@ def main():
     args.epochs = 1001
     args.batch_size = 64
     args.image_size = 64
+    args.channels = 4
     args.num_classes = None # 116
     args.dataset_path = '/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData'
-    args.lr = 3e-4
+    #args.dataset_path = './data/BraTS20'
+    args.lr = 2e-5
     args.path_to_csv = '/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData/healthy_slices.csv'
+    #args.path_to_csv = './data/healthy_slices.csv'
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )
