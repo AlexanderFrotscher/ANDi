@@ -19,7 +19,7 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
-logging.basicConfig(format="%(message)s", level=logging.INFO)
+logging.basicConfig(filename='my_log.txt',format="%(message)s", level=logging.INFO)
 
 def plot_images(images):
     plt.figure(figsize=(32, 32))
@@ -153,6 +153,7 @@ class BratsDataset(Dataset):
         for modality in range(images.shape[1]):
             i_ = images[:, modality, :, :].reshape(-1)
             i_ = i_[i_ > 0]
+            logging.info(f'{i_.numel()==0}')
             p_99 = torch.quantile(i_, 0.99)
             images[:, modality, :, :] /= p_99
 
@@ -164,9 +165,9 @@ def Brats20(args):
         [
             transforms.Resize(args.image_size,antialias=True),
             transforms.RandomHorizontalFlip(0.4),
-            transforms.Lambda(
-                lambda x: (x * 2) - 1
-            ),  # bring to [-1,1] but does not work on windows
+            #transforms.Lambda(
+            #    lambda x: (x * 2) - 1
+            #),  # bring to [-1,1] but does not work on windows
             #transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ]
     )
