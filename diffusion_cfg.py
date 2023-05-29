@@ -253,7 +253,7 @@ def main():
     args = parser.parse_args()
     args.run_name = "Diffusion_BraTS2020"
     args.epochs = 1001
-    args.batch_size = 32
+    args.batch_size = 1
     args.image_size = 64
     args.channels = 4
     args.num_classes = None # 116

@@ -6,6 +6,7 @@ This code is based on @dome272 implementation of DDPM's
 https://github.com/dome272/Diffusion-Models-pytorch
 """
 
+import logging
 import os
 
 import nibabel as nib
@@ -18,6 +19,7 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
+logging.basicConfig(format="%(message)s", level=logging.INFO)
 
 def plot_images(images):
     plt.figure(figsize=(32, 32))
@@ -132,6 +134,7 @@ class BratsDataset(Dataset):
             images.append(img)
 
         img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(dim=0)
+        logging.info(f'This is {id_} at slice {slice}')
         img = self.normalize(img)
         img = img[0].float()
         img = self.transforms(img)
