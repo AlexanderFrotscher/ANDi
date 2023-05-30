@@ -3,10 +3,6 @@ import numpy as np
 import nibabel as nib
 import pandas as pd
 
-def load_img(file_path):
-        data = nib.load(file_path).get_fdata()
-        return data
-
 
 def preprocess_mask(mask):
         mask_WT = mask.copy()
@@ -18,28 +14,39 @@ def preprocess_mask(mask):
 df = pd.read_csv('/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData/survival_info.csv')
 root_path = '/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData'
 df2 = pd.DataFrame({'Slice':[x for x in range(15,131)]})
+df = pd.merge(df,df2,'cross')
 ids = df.loc[:,"Brats20ID"]
 ages = df.loc[:,"Age"]
-df = pd.merge(df,df2,'cross')
-slices = [x for x in range(15,131)]
-my_ids = []
+slices = df.loc[:,'Slice']
+tumor_ids = []
 my_ages = []
-my_slices = []
-for id,age in zip(ids,ages):
-        img_path = os.path.join(root_path, id, id + '_seg.nii.gz')
-        img = load_img(img_path)
-        img = preprocess_mask(img)
-        for sl in slices:
-                img_slice = img[:,:,sl]
-                if 1 in img_slice:
-                        my_ids.append(id)
+tumor_slices = []
+zero_ids = []
+zero_slices = []
+for id,age,sl in zip(ids,ages,slices):
+        img_path = os.path.join(root_path,id, id + '_seg.nii.gz')
+        mask = np.asarray(nib.load(img_path).dataobj[:,:,sl],dtype=int)
+        img_path = os.path.join(root_path,id, id + '_flair.nii.gz')
+        img = np.asarray(nib.load(img_path).dataobj[:,:,sl],dtype=float)
+        if not np.any(img):
+              zero_ids.append(id)
+              zero_slices.append(sl)
+        else:
+                mask = preprocess_mask(mask)
+                if 1 in mask:
+                        tumor_ids.append(id)
                         my_ages.append(age)
-                        my_slices.append(sl)
-my_dict = {"Brats20ID" : my_ids,
+                        tumor_slices.append(sl)
+zero_dict = {"Brats20ID" : zero_ids,
+           "Slice": zero_slices}
+tumor_dict = {"Brats20ID" : tumor_ids,
            "Age": my_ages,
-           "Slice": my_slices}
+           "Slice": tumor_slices}
 df = df.drop('Survival_days',axis=1).drop('Extent_of_Resection',axis=1)
-df_tumor = pd.DataFrame(my_dict)
+df_tumor = pd.DataFrame(tumor_dict)
+df_zero = pd.DataFrame(zero_dict)
 df_tumor.to_csv('/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData/tumor_slices.csv',index=False)
-df_healthy = pd.merge(df,df_tumor,indicator=True,how='outer').query('_merge=="left_only"').drop('_merge',axis=1)
+df_zero.to_csv('/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData/zero_slices.csv',index=False)
+df_nonzero = pd.merge(df, df_zero,indicator=True,how='outer').query('_merge=="left_only"').drop('_merge',axis=1)
+df_healthy = pd.merge(df_nonzero,df_tumor,indicator=True,how='outer').query('_merge=="left_only"').drop('_merge',axis=1)
 df_healthy.to_csv('/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData/healthy_slices.csv',index=False)

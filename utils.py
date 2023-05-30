@@ -6,7 +6,7 @@ This code is based on @dome272 implementation of DDPM's
 https://github.com/dome272/Diffusion-Models-pytorch
 """
 
-import logging
+
 import os
 
 import nibabel as nib
@@ -19,7 +19,7 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
-logging.basicConfig(filename='my_log.txt',format="%(message)s", level=logging.INFO)
+
 
 def plot_images(images):
     plt.figure(figsize=(32, 32))
@@ -134,7 +134,6 @@ class BratsDataset(Dataset):
             images.append(img)
 
         img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(dim=0)
-        logging.info(f'This is {id_} at slice {slice}')
         img = self.normalize(img)
         img = img[0].float()
         img = self.transforms(img)
@@ -153,7 +152,6 @@ class BratsDataset(Dataset):
         for modality in range(images.shape[1]):
             i_ = images[:, modality, :, :].reshape(-1)
             i_ = i_[i_ > 0]
-            logging.info(f'{i_.numel()==0}')
             p_99 = torch.quantile(i_, 0.99)
             images[:, modality, :, :] /= p_99
 
@@ -165,9 +163,9 @@ def Brats20(args):
         [
             transforms.Resize(args.image_size,antialias=True),
             transforms.RandomHorizontalFlip(0.4),
-            #transforms.Lambda(
-            #    lambda x: (x * 2) - 1
-            #),  # bring to [-1,1] but does not work on windows
+            transforms.Lambda(
+                lambda x: (x * 2) - 1
+            ),  # bring to [-1,1] but does not work on windows
             #transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ]
     )
