@@ -29,7 +29,7 @@ for id,age,sl in zip(ids,ages,slices):
         img_path = os.path.join(root_path,id, id + '_flair.nii.gz')
         img = np.asarray(nib.load(img_path).dataobj[:,:,sl],dtype=float)
         num_zeros = np.count_nonzero(img==0)
-        if num_zeros > 50000:
+        if num_zeros > 54000:
               zero_ids.append(id)
               zero_slices.append(sl)
         else:
