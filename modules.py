@@ -6,9 +6,12 @@ This code is based on @dome272 implementation of DDPM's
 https://github.com/dome272/Diffusion-Models-pytorch
 """
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import LambdaLR
 
 
 class EMA:
@@ -19,7 +22,7 @@ class EMA:
 
     def update_model_average(self, ema_model, current_model):
         for current_params, ema_params in zip(
-            current_model.parameters(),ema_model.parameters()
+            current_model.parameters(), ema_model.parameters()
         ):
             old_weight, up_weight = ema_params.data, current_params.data
             ema_params.data = self.update_average(old_weight, up_weight)
@@ -38,10 +41,47 @@ class EMA:
         self.step += 1
 
     def reset_parameters(self, ema_model, model):
-        if type(model) in (nn.parallel.DataParallel, nn.parallel.DistributedDataParallel):  # checks multiprocessing/multi-GPU's
+        if type(model) in (
+            nn.parallel.DataParallel,
+            nn.parallel.DistributedDataParallel,
+        ):  # checks multiprocessing/multi-GPU's
             ema_model.load_state_dict(model.module.state_dict())
         else:
             ema_model.load_state_dict(model.state_dict())
+
+
+class LRWarmupCosineDecay(LambdaLR):
+    """Linear warmup and then cosine decay.
+    Linearly increases learning rate from start_lr to target_lr over the specified number of steps
+    Decreases learning rate from target_lr to start_lr over remaining steps
+    """
+
+    def __init__(
+        self, optimizer, warmup_steps, steps_total, start_lr, target_lr, last_epoch=-1
+    ):
+        self.warmup_steps = warmup_steps
+        self.steps_total = steps_total
+        self.start_lr = start_lr
+        self.target_lr = target_lr
+        self.increase = (target_lr - start_lr) / warmup_steps
+        super(LRWarmupCosineDecay, self).__init__(
+            optimizer, self.lr_lambda, last_epoch=last_epoch
+        )
+
+    def lr_lambda(self, step):
+        if step < self.warmup_steps:
+            return self.start_lr + (step * self.increase)
+        return (
+            self.start_lr + (self.target_lr - self.start_lr)
+            * ((
+                1
+                + math.cos(
+                    math.pi
+                    * (step - self.warmup_steps)
+                    / float(self.steps_total - self.warmup_steps)
+                )
+            )*0.5)
+        )
 
 
 class SelfAttention(nn.Module):
@@ -61,13 +101,15 @@ class SelfAttention(nn.Module):
         )
 
     def forward(self, x):
-        x = x.view(-1, self.channels, self.size * self.size).swapaxes(1, 2)
+        x = x.view(-1, self.channels, self.size * self.size).swapaxes(1, 2).contiguous()
         x_ln = self.ln(x)
         attention_value, _ = self.mha(x_ln, x_ln, x_ln)
         attention_value = attention_value + x
         attention_value = self.ff_self(attention_value) + attention_value
-        return attention_value.swapaxes(2, 1).view(
-            -1, self.channels, self.size, self.size
+        return (
+            attention_value.swapaxes(2, 1)
+            .view(-1, self.channels, self.size, self.size)
+            .contiguous()
         )
 
 
@@ -193,7 +235,7 @@ class UNet(nn.Module):
         return output
 
     def forward(self, x, t):
-        t = t.unsqueeze(-1).type(torch.float)
+        t = t.unsqueeze(-1).type(x.dtype)
         t = self.pos_encoding(t, self.time_dim)
         return self.unet_forward(x, t)
 
@@ -214,7 +256,8 @@ class UNet_conditional(UNet):
             self.label_emb = nn.Embedding(num_classes, time_dim)
 
     def forward(self, x, t, y):
-        t = t.unsqueeze(-1).type(torch.float)
+        # t = t.unsqueeze(-1).type(torch.float)
+        t = t.unsqueeze(-1).type(x.dtype)
         t = self.pos_encoding(t, self.time_dim)
 
         if y is not None:
