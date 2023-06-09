@@ -14,15 +14,13 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-from accelerate import Accelerator
-from accelerate import DistributedDataParallelKwargs
+from accelerate import Accelerator, DistributedDataParallelKwargs
 from torch import optim
 from tqdm import tqdm
 
 import wandb
 from modules import *
 from utils import *
-
 
 logging.basicConfig(format="%(message)s", level=logging.INFO)
 
@@ -162,9 +160,7 @@ class Diffusion:
                 xts[:, i] = x_t
 
             # generate the latents
-            for i in tqdm(
-                reversed(range(1, timestemp)), position=0
-            ):
+            for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 x_t = xts[:, i]
                 x_tm1 = xts[:, i - 1]
@@ -215,7 +211,7 @@ def train(args):
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
-    dataloader = Brats20(args,preload=True)
+    dataloader = Brats20(args, preload=True)
     steps_per_epoch = int(np.ceil(len(dataloader.dataset) / args.batch_size))
     number_of_steps = steps_per_epoch * args.epochs
     model = UNet_conditional(
@@ -225,8 +221,16 @@ def train(args):
         device=device,
         img_size=args.image_size,
     )
-    optimizer = optim.AdamW(model.parameters(),lr=1) # scheduler multiplies base lr of optimizer -> lr = 1
-    scheduler = LRWarmupCosineDecay(optimizer,int(0.05*number_of_steps),number_of_steps,args.start_lr,args.target_lr)
+    optimizer = optim.AdamW(
+        model.parameters(), lr=1
+    )  # scheduler multiplies base lr of optimizer -> lr = 1
+    scheduler = LRWarmupCosineDecay(
+        optimizer,
+        int(0.05 * number_of_steps),
+        number_of_steps,
+        args.start_lr,
+        args.target_lr,
+    )
     mse = nn.MSELoss()
     diffusion = Diffusion(img_size=args.image_size, device=device)
     ema = EMA(0.995)
@@ -296,20 +300,20 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "DDPM_conditional"
+    args.run_name = "Diffusion_BraTS2020"
     args.epochs = 1001
     args.batch_size = 64
     args.image_size = 64
     args.channels = 4
     args.num_classes = None  # 116
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData"
-    #args.dataset_path = './data/BraTS20'
+    # args.dataset_path = './data/BraTS20'
     args.start_lr = 2e-5
     args.target_lr = 3e-4
     args.path_to_csv = (
         "/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData/survival_info.csv"
     )
-    #args.path_to_csv = './data/survival_info_02.csv'
+    # args.path_to_csv = './data/survival_info_02.csv'
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )

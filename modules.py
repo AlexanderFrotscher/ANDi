@@ -52,8 +52,8 @@ class EMA:
 
 class LRWarmupCosineDecay(LambdaLR):
     """Linear warmup and then cosine decay.
-    Linearly increases learning rate from start_lr to target_lr over the specified number of steps
-    Decreases learning rate from target_lr to start_lr over remaining steps
+    Linearly increases the factor the learning rate is multiplied with from start_lr to target_lr over the specified number of steps
+    Decreases this factor from target_lr to start_lr over remaining steps. Set lr in optimizer to 1 to ensure that this factor equals the lr.
     """
 
     def __init__(
@@ -71,16 +71,16 @@ class LRWarmupCosineDecay(LambdaLR):
     def lr_lambda(self, step):
         if step < self.warmup_steps:
             return self.start_lr + (step * self.increase)
-        return (
-            self.start_lr + (self.target_lr - self.start_lr)
-            * ((
+        return self.start_lr + (self.target_lr - self.start_lr) * (
+            (
                 1
                 + math.cos(
                     math.pi
                     * (step - self.warmup_steps)
                     / float(self.steps_total - self.warmup_steps)
                 )
-            )*0.5)
+            )
+            * 0.5
         )
 
 

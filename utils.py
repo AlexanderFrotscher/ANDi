@@ -88,16 +88,15 @@ def upload_images(images, mode="RGB", **kwargs):
     return ndarr
 
 
-
 def cifar_10(args):
     transform_train = transforms.Compose(
         [
             transforms.Resize(args.image_size),
             transforms.RandomHorizontalFlip(0.4),
             transforms.ToTensor(),  # divide by 255
-            #transforms.Lambda(
+            # transforms.Lambda(
             #    lambda x: (x * 2) - 1
-            #),  # bring to [-1,1] but does not work on windows
+            # ),  # bring to [-1,1] but does not work on windows
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ]
     )
@@ -146,7 +145,7 @@ class BratsDataset(Dataset):
         img = self.transforms(img)
 
         return img, age
-    
+
     def normalize(self, images):
         """
         Normalise the intensity values in each modality by scaling by 99 percentile foreground (nonzero) value.
@@ -158,6 +157,7 @@ class BratsDataset(Dataset):
             images[:, modality, :, :] /= p_99
 
         return images
+
 
 class preload_dataset(Dataset):
     def __init__(self, my_images: list, my_labels: list, my_transforms: transforms):
@@ -179,26 +179,29 @@ class preload_dataset(Dataset):
 This function is from https://github.com/AntanasKascenas/DenoisingAE
 """
 
-def normalize_volume(images):
-        """
-        Normalise the intensity values in each modality by scaling by 99 percentile foreground (nonzero) value.
-        """
-        for modality in range(images.shape[0]):
-            i_ = images[modality, :, :, :].reshape(-1)
-            i_ = i_[i_ > 0]
-            p_99 = torch.quantile(i_, 0.99)
-            images[modality, :, :, :] /= p_99
 
-        return images
+def normalize_volume(images):
+    """
+    Normalise the intensity values in each modality by scaling by 99 percentile foreground (nonzero) value.
+    """
+    for modality in range(images.shape[0]):
+        i_ = images[modality, :, :, :].reshape(-1)
+        i_ = i_[i_ > 0]
+        p_99 = torch.quantile(i_, 0.99)
+        images[modality, :, :, :] /= p_99
+
+    return images
+
 
 def preprocess_mask(mask):
-        mask_WT = mask.copy()
-        mask_WT[mask_WT == 1] = 1
-        mask_WT[mask_WT == 2] = 1
-        mask_WT[mask_WT == 4] = 1
-        return mask_WT
+    mask_WT = mask.copy()
+    mask_WT[mask_WT == 1] = 1
+    mask_WT[mask_WT == 2] = 1
+    mask_WT[mask_WT == 4] = 1
+    return mask_WT
 
-def Brats20(args, preload = False):
+
+def Brats20(args, preload=False):
     my_transforms = transforms.Compose(
         [
             transforms.Resize(args.image_size, antialias=True),
@@ -211,34 +214,36 @@ def Brats20(args, preload = False):
     if preload == True:
         df = pd.read_csv(args.path_to_csv)
         root_path = args.dataset_path
-        ids = df.loc[:,"Brats20ID"]
-        ages = df.loc[:,"Age"]
+        ids = df.loc[:, "Brats20ID"]
+        ages = df.loc[:, "Age"]
         my_ages = []
         my_slices = []
         data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
-        for id,age in zip(ids,ages):
+        for id, age in zip(ids, ages):
             images = []
-            mask_path = os.path.join(root_path,id, id + '_seg.nii.gz')
-            mask = np.asarray(nib.load(mask_path).dataobj,dtype=int)
+            mask_path = os.path.join(root_path, id, id + "_seg.nii.gz")
+            mask = np.asarray(nib.load(mask_path).dataobj, dtype=int)
             for data_type in data_types:
                 img_path = os.path.join(args.dataset_path, id, id + data_type)
                 img = np.asarray(nib.load(img_path).dataobj, dtype=float)
                 images.append(img)
 
-            img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(dim=0)
+            img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(
+                dim=0
+            )
             img = normalize_volume(img[0].float())
             mask = preprocess_mask(mask)
             for i in range(img.shape[3]):
-                my_slice = img[0,:,:,i]
-                my_mask = mask[:,:,i]
-                num_zeros = np.count_nonzero(my_slice==0)
+                my_slice = img[0, :, :, i]
+                my_mask = mask[:, :, i]
+                num_zeros = np.count_nonzero(my_slice == 0)
                 if num_zeros < 54000 and 1 not in my_mask:
                     my_ages.append(age)
-                    my_slices.append(img[:,:,:,i])
-        dataset = preload_dataset(my_slices,my_ages,my_transforms)
+                    my_slices.append(img[:, :, :, i])
+        dataset = preload_dataset(my_slices, my_ages, my_transforms)
         dataloader = DataLoader(
             dataset, batch_size=args.batch_size, num_workers=4, shuffle=True
-        )    
+        )
     else:
         df = pd.read_csv(args.path_to_csv)
         dataset = BratsDataset(df, my_transforms, args.dataset_path)
