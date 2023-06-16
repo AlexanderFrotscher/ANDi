@@ -213,7 +213,7 @@ def Brats20(args, preload=False, my_shuffle = True):
     if preload == True:
         df = pd.read_csv(args.path_to_csv)
         root_path = args.dataset_path
-        ids = df.loc[:, "Brats21ID"]
+        ids = df.loc[:, "BraTS21ID"]
         my_slices = []
         data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
         for id in ids:
