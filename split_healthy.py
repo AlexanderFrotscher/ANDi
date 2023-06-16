@@ -19,7 +19,7 @@ df = pd.read_csv(
     "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/BraTS2021_names.csv"
 )
 root_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
-ids = df.loc[:, "Brats21ID"]
+ids = df.loc[:, "BraTS21ID"]
 tumor_ids = []
 tumor_slices = []
 healthy_ids = []
@@ -40,8 +40,8 @@ for id in ids:
                 healthy_ids.append(id)
                 healthy_slices.append(i)
 
-tumor_dict = {"Brats21ID": tumor_ids, "Slice": tumor_slices}
-healthy_dict = {"Brats21ID": healthy_ids, "Slice": healthy_slices}
+tumor_dict = {"BraTS21ID": tumor_ids, "Slice": tumor_slices}
+healthy_dict = {"BraTS21ID": healthy_ids, "Slice": healthy_slices}
 df_tumor = pd.DataFrame(tumor_dict)
 df_tumor.to_csv(
     "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/tumor_slices.csv",
