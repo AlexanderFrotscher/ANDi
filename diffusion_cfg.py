@@ -96,7 +96,9 @@ class Diffusion:
         x = (x * 255).type(torch.uint8)
         return x
 
-    def ddim_sample(self, model, n, labels, channels, cfg_scale=3):
+    def ddim_sample(
+        self, model, n, labels, channels, cfg_scale=3
+    ):  # not working at all
         logging.info(f"Sampling {n} new images....")
         model.eval()
         with torch.no_grad():
@@ -108,6 +110,7 @@ class Diffusion:
                 position=0,
             ):
                 t = (torch.ones(n) * i).long().to(self.device)
+                t_m1 = (torch.ones(n) * (i - 1)).long().to(self.device)
                 predicted_noise = model(x, t, labels)
                 if cfg_scale > 0:
                     uncond_predicted_noise = model(x, t, None)
@@ -115,7 +118,7 @@ class Diffusion:
                         uncond_predicted_noise, predicted_noise, cfg_scale
                     )
                 # the notation in the ddim paper is different -> alpha_hat is just alpha there
-                alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
+                alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
                 alpha_hat = self.alpha_hat[t][:, None, None, None]
                 x = torch.sqrt(alpha_hat_minus_one) * (
                     (x - torch.sqrt(1 - alpha_hat_minus_one) * predicted_noise)
@@ -177,7 +180,7 @@ class Diffusion:
                     xts[:, i - 1] = x_tm1
         return xts, zs
 
-    def guide_restoration(self, model, xts, zs, cfg_scale=0.1):
+    def guide_restoration(self, model, xts, zs, cfg_scale=1.5, noise_scale=0.5):
         logging.info(f"Starting healing process....")
         model.eval()
         num_steps = zs.shape[1]
@@ -190,7 +193,7 @@ class Diffusion:
                 if cfg_scale > 0:
                     sample_noise = model(xts[:, i], t, None)
                     predicted_noise = torch.lerp(
-                        predicted_noise, sample_noise, cfg_scale
+                        sample_noise, predicted_noise, cfg_scale
                     )
                 beta = self.beta[t][:, None, None, None]
                 if i > 1:
@@ -198,12 +201,24 @@ class Diffusion:
                 else:
                     noise = torch.zeros_like(x)
                 x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * (
-                    0.9 * noise + 0.1 * zs[:, i]
+                    noise_scale * noise + (1 - noise_scale) * zs[:, i]
                 )
         model.train()
         x = (x.clamp(-1, 1) + 1) / 2
         x = (x * 255).type(torch.uint8)
         return x
+
+    def create_mask(self, zs, timestep=None, threshold=2.58):  # bonferoni 4.374
+        if timestep is None:
+            timestep = self.noise_steps
+        zs_mean = torch.mean(zs, dim=1)
+        zs_mean = (torch.abs(zs_mean)) * np.sqrt(timestep)
+        zs_mean[zs_mean < threshold] = 0
+        zs_mean[zs_mean != 0] = 1
+        zs_mean = torch.mean(zs_mean, dim=1)
+        zs_mean[zs_mean < 0.5] = 0
+        zs_mean[zs_mean != 0] = 1
+        return zs_mean
 
 
 def train(args):
@@ -263,18 +278,19 @@ def train(args):
             ema.step_ema(ema_model, model)
             wandb.log({"MSE": loss.item()})
 
-        if epoch % 20 == 0 and accelerator.is_main_process:
+        if epoch % 50 == 0 and accelerator.is_main_process:
             my_model = accelerator.unwrap_model(model)
             my_ema_model = accelerator.unwrap_model(ema_model)
             # labels = torch.arange(args.num_classes).long().to(device)
             labels = None
             n = 5
             accelerator.save(
-                my_model.state_dict(), os.path.join("models", args.run_name, f"ckpt.pt")
+                my_model.state_dict(),
+                os.path.join("models", args.run_name, f"{epoch}_ckpt.pt"),
             )
             accelerator.save(
                 optimizer.state_dict(),
-                os.path.join("models", args.run_name, f"optim.pt"),
+                os.path.join("models", args.run_name, f"{epoch}_optim.pt"),
             )
             ema_sampled_images = diffusion.sample(
                 ema_model, n=n, labels=labels, channels=args.channels, cfg_scale=0
@@ -286,13 +302,8 @@ def train(args):
             )
             accelerator.save(
                 my_ema_model.state_dict(),
-                os.path.join("models", args.run_name, f"ema_ckpt.pt"),
+                os.path.join("models", args.run_name, f"{epoch}_ema_ckpt.pt"),
             )
-            accelerator.save(
-                my_ema_model.state_dict(), os.path.join(wandb.run.dir, f"ema_ckpt.pt")
-            )
-            wandb.save(os.path.join(wandb.run.dir, "ema_ckpt.pt"))
-
             example_images = wandb.Image(upload_images(ema_sampled_images, mode="L"))
             wandb.log({"EMA-DDPM": example_images})
 
@@ -300,18 +311,18 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "Diffusion_BraTS2020"
-    args.epochs = 1001
-    args.batch_size = 64
+    args.run_name = "BraTS21"
+    args.epochs = 401
+    args.batch_size = 20
     args.image_size = 64
     args.channels = 4
     args.num_classes = None  # 116
-    args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData"
+    args.dataset_path = '/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data'
     # args.dataset_path = './data/BraTS20'
-    args.start_lr = 2e-5
-    args.target_lr = 3e-4
+    args.start_lr = 9e-6
+    args.target_lr = 9e-5
     args.path_to_csv = (
-        "/mnt/lustre/baumgartner/bkc035/data/BraTS2020/TrainingData/survival_info.csv"
+        '/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/BraTS2021_names.csv'
     )
     # args.path_to_csv = './data/survival_info_02.csv'
     torch.backends.cudnn.benchmark = (
@@ -326,13 +337,29 @@ def main():
 if __name__ == "__main__":
     main()
     """
+    parser = argparse.ArgumentParser()
+    args = parser.parse_args()
+    args.dataset_path = './data/BraTS20'
+    args.path_to_csv = (
+        "./data/tumor_slices_small.csv"
+    )
+    args.batch_size = 1
+    args.image_size = 64
     device = "cuda"
     model = UNet_conditional().to(device)
     ckpt = torch.load("./models/trained_models/ema_ckpt.pt")
     model.load_state_dict(ckpt)
     diffusion = Diffusion(noise_steps=1000, img_size=64, device=device)
-    y = torch.Tensor([6] * n).long().to(device)
-    xts, zs = diffusion.dpm_inversion(model, img, 250)
-    my_images = diffusion.guide_restoration(model,xts,zs)
-    plot_images(my_images, mode="L")
+    #y = torch.Tensor([6] * n).long().to(device)
+    dataloader = Brats20(args,my_shuffle=False)
+    pbar = tqdm(dataloader)
+    my_transform = transforms.Lambda(lambda x: (x * 2) - 1)
+    my_slices = []
+    for i, (image, label) in enumerate(pbar):
+        image = my_transform(image).to(device)
+        xts, zs = diffusion.dpm_inversion(model, image, 500)
+        my_images = diffusion.guide_restoration(model,xts,zs, cfg_scale=0, noise_scale=0.5)
+        mask = diffusion.create_mask(zs,500)
+        my_slices.append(mask[0].cpu())
+    show_slices(my_slices)
     """

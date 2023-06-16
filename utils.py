@@ -150,7 +150,7 @@ class BratsDataset(Dataset):
         """
         Normalise the intensity values in each modality by scaling by 99 percentile foreground (nonzero) value.
         """
-        for modality in range(images.shape[0]):
+        for modality in range(images.shape[1]):
             i_ = images[:, modality, :, :].reshape(-1)
             i_ = i_[i_ > 0]
             p_99 = torch.quantile(i_, 0.99)
@@ -160,19 +160,17 @@ class BratsDataset(Dataset):
 
 
 class preload_dataset(Dataset):
-    def __init__(self, my_images: list, my_labels: list, my_transforms: transforms):
+    def __init__(self, my_images: list, my_transforms: transforms):
         self.transforms = my_transforms
         self.images = my_images
-        self.labels = my_labels
 
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, idx):
         img = self.images[idx]
-        label = self.labels[idx]
         img = self.transforms(img)
-        return img, label
+        return img
 
 
 """
@@ -201,10 +199,11 @@ def preprocess_mask(mask):
     return mask_WT
 
 
-def Brats20(args, preload=False):
+def Brats20(args, preload=False, my_shuffle = True):
     my_transforms = transforms.Compose(
         [
             transforms.Resize(args.image_size, antialias=True),
+            transforms.RandomHorizontalFlip(0.4),
             transforms.Lambda(
                 lambda x: (x * 2) - 1
             ),  # bring to [-1,1] but does not work on windows
@@ -214,12 +213,10 @@ def Brats20(args, preload=False):
     if preload == True:
         df = pd.read_csv(args.path_to_csv)
         root_path = args.dataset_path
-        ids = df.loc[:, "Brats20ID"]
-        ages = df.loc[:, "Age"]
-        my_ages = []
+        ids = df.loc[:, "Brats21ID"]
         my_slices = []
         data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
-        for id, age in zip(ids, ages):
+        for id in ids:
             images = []
             mask_path = os.path.join(root_path, id, id + "_seg.nii.gz")
             mask = np.asarray(nib.load(mask_path).dataobj, dtype=int)
@@ -238,17 +235,16 @@ def Brats20(args, preload=False):
                 my_mask = mask[:, :, i]
                 num_zeros = np.count_nonzero(my_slice == 0)
                 if num_zeros < 54000 and 1 not in my_mask:
-                    my_ages.append(age)
                     my_slices.append(img[:, :, :, i])
-        dataset = preload_dataset(my_slices, my_ages, my_transforms)
+        dataset = preload_dataset(my_slices, my_transforms)
         dataloader = DataLoader(
-            dataset, batch_size=args.batch_size, num_workers=4, shuffle=True
+            dataset, batch_size=args.batch_size, num_workers=4, shuffle=my_shuffle
         )
     else:
         df = pd.read_csv(args.path_to_csv)
         dataset = BratsDataset(df, my_transforms, args.dataset_path)
         dataloader = DataLoader(
-            dataset, batch_size=args.batch_size, num_workers=8, shuffle=True
+            dataset, batch_size=args.batch_size, num_workers=4, shuffle=my_shuffle
         )
     return dataloader
 
