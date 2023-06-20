@@ -132,19 +132,27 @@ class BratsDataset(Dataset):
     def __getitem__(self, idx):
         id_ = self.df.loc[idx, "Brats20ID"]
         images = []
-        age = self.df.loc[idx, "Age"]
+        #age = self.df.loc[idx, "Age"]
         slice = self.df.loc[idx, "Slice"]
         for data_type in self.data_types:
             img_path = os.path.join(self.dataset_path, id_, id_ + data_type)
             img = np.asarray(nib.load(img_path).dataobj[:, :, slice], dtype=float)
             images.append(img)
 
+        mask_path = os.path.join(self.dataset_path,id_,id_+'_seg.nii.gz')
+        mask = np.asarray(nib.load(mask_path).dataobj[:,:,slice], dtype=int)
+        mask[mask == 1] = 1
+        mask[mask == 2] = 1
+        mask[mask == 4] = 1
+        mask = torch.from_numpy(mask)
+        mask = mask[None,:,:]
         img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(dim=0)
         img = self.normalize(img)
         img = img[0].float()
         img = self.transforms(img)
+        mask = self.transforms(mask)
 
-        return img, age
+        return img, mask
 
     def normalize(self, images):
         """
@@ -197,6 +205,11 @@ def preprocess_mask(mask):
     mask_WT[mask_WT == 2] = 1
     mask_WT[mask_WT == 4] = 1
     return mask_WT
+
+def dice(pred, truth):
+    num = 2*((pred * truth).sum(dim=(1,2)).type(torch.float))
+    den = (pred.sum(dim=(1,2)) + truth.sum(dim=(1,2))).type(torch.float)
+    return num/den
 
 
 def Brats20(args, preload=False, my_shuffle = True):

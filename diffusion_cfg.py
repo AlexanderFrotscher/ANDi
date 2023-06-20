@@ -204,8 +204,8 @@ class Diffusion:
                     noise_scale * noise + (1 - noise_scale) * zs[:, i]
                 )
         model.train()
-        x = (x.clamp(-1, 1) + 1) / 2
-        x = (x * 255).type(torch.uint8)
+        #x = (x.clamp(-1, 1) + 1) / 2
+        #x = (x * 255).type(torch.uint8)
         return x
 
     def create_mask(self, zs, timestep=None, threshold=2.58):  # bonferoni 4.374
@@ -213,13 +213,18 @@ class Diffusion:
             timestep = self.noise_steps
         zs_mean = torch.mean(zs, dim=1)
         zs_mean = (torch.abs(zs_mean)) * np.sqrt(timestep)
-        zs_mean[zs_mean < threshold] = 0
-        zs_mean[zs_mean != 0] = 1
         zs_mean = torch.mean(zs_mean, dim=1)
-        zs_mean[zs_mean < 0.5] = 0
+        zs_mean[zs_mean < threshold] = 0
         zs_mean[zs_mean != 0] = 1
         return zs_mean
 
+
+def create_difference(images, predictions, threshold=0.2):
+    masks = torch.abs(images - predictions)
+    masks = torch.mean(masks, dim=1)
+    masks[masks< threshold] = 0
+    masks[masks !=0] = 1
+    return masks.type(torch.uint8)
 
 def train(args):
     make_dicts(args.run_name)
@@ -278,7 +283,7 @@ def train(args):
             ema.step_ema(ema_model, model)
             wandb.log({"MSE": loss.item()})
 
-        if epoch % 8 == 0 and accelerator.is_main_process:
+        if epoch % 20 == 0 and accelerator.is_main_process:
             my_model = accelerator.unwrap_model(model)
             my_ema_model = accelerator.unwrap_model(ema_model)
             # labels = torch.arange(args.num_classes).long().to(device)
@@ -312,8 +317,8 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.run_name = "BraTS21"
-    args.epochs = 81
-    args.batch_size = 20
+    args.epochs = 181
+    args.batch_size = 16
     args.image_size = 64
     args.channels = 4
     args.num_classes = None  # 116
@@ -322,7 +327,7 @@ def main():
     args.start_lr = 9e-6
     args.target_lr = 9e-5
     args.path_to_csv = (
-        '/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/BraTS2021_names.csv'
+        '/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_train.csv'
     )
     # args.path_to_csv = './data/survival_info_02.csv'
     torch.backends.cudnn.benchmark = (
@@ -341,9 +346,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args.dataset_path = './data/BraTS20'
     args.path_to_csv = (
-        "./data/tumor_slices_small.csv"
+        "./data/BraTS20/tumor_slices_small.csv"
     )
-    args.batch_size = 1
+    args.batch_size = 2
     args.image_size = 64
     device = "cuda"
     model = UNet_conditional().to(device)
@@ -353,13 +358,42 @@ if __name__ == "__main__":
     #y = torch.Tensor([6] * n).long().to(device)
     dataloader = Brats20(args,my_shuffle=False)
     pbar = tqdm(dataloader)
-    my_transform = transforms.Lambda(lambda x: (x * 2) - 1)
+    my_transforms = transforms.Compose(
+        [   transforms.Lambda(lambda x: x/255),
+            transforms.Lambda(lambda x: (x * 2) - 1),
+        ])
+    my_images = []
+    my_images.append(np.array(Image.open('./data/BraTS20/my_test_0_A(2).jpg'))[:,:,0])
+    for i in range(1,4):
+        my_images.append(np.array(Image.open(f'./data/BraTS20/my_test_{i}.jpg')))
+    img = torch.stack([torch.from_numpy(x) for x in my_images], dim=0).unsqueeze(dim=0)
+    img = img.float()
+    img = my_transforms(img[0].to(device))
+    img = img[None,:,:,:]
+    xts, zs = diffusion.dpm_inversion(model, img, 500)
+    zs_mean = torch.mean(zs, dim=1)
     my_slices = []
+    for i in range(zs_mean.shape[1]):
+        my_slices.append(zs_mean[:,i,:,:][0].cpu())
+    show_slices(my_slices)
+    mask = diffusion.create_mask(zs,500)
+    show_slices([mask[0].cpu()])
+    dice_scores_diff = []
+    dice_scores_mask = []
+    my_transform = transforms.Lambda(lambda x: (x*2)-1)
     for i, (image, label) in enumerate(pbar):
         image = my_transform(image).to(device)
-        xts, zs = diffusion.dpm_inversion(model, image, 500)
+        label = label.to(device)
+        label = label[:,0,:,:].type(torch.uint8)
+        xts, zs = diffusion.dpm_inversion(model, image, 200)
         my_images = diffusion.guide_restoration(model,xts,zs, cfg_scale=0, noise_scale=0.5)
-        mask = diffusion.create_mask(zs,500)
-        my_slices.append(mask[0].cpu())
-    show_slices(my_slices)
+        my_masks = create_difference(image,my_images)
+        #check = my_masks * label
+        #show_slices([my_masks[0].cpu(),label[0].cpu(),check[0].cpu()])
+        dice_scores_diff.extend([float(x) for x in dice(my_masks,label)])
+        #xts, zs = diffusion.dpm_inversion(model, image, 500)
+        #mask = diffusion.create_mask(zs,500)
+        #dice_scores_mask.extend([float(x) for x in dice(mask,label)])
+    #print(np.asarray(dice_scores_diff).mean())
+    #print(np.asarray(dice_scores_mask).mean())
     """
