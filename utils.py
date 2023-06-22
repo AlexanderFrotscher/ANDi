@@ -173,7 +173,7 @@ class preload_dataset(Dataset):
         self.images = my_images
 
     def __len__(self):
-        return len(self.labels)
+        return len(self.images)
 
     def __getitem__(self, idx):
         img = self.images[idx]
