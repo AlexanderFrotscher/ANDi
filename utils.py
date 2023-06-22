@@ -251,7 +251,7 @@ def Brats20(args, preload=False, my_shuffle = True):
                     my_slices.append(img[:, :, :, i])
         dataset = preload_dataset(my_slices, my_transforms)
         dataloader = DataLoader(
-            dataset, batch_size=args.batch_size, num_workers=4, shuffle=my_shuffle
+            dataset, batch_size=args.batch_size, num_workers=2, shuffle=my_shuffle
         )
     else:
         df = pd.read_csv(args.path_to_csv)

@@ -6,7 +6,7 @@
 #SBATCH --time=1-14:00            # Runtime in D-HH:MM
 #SBATCH --partition=a100 # Partition to submit to
 #SBATCH --gres=gpu:4              # optionally type and number of gpus
-#SBATCH --mem=700G                 # Memory pool for all cores (see also --mem-per-cpu)
+#SBATCH --mem=950GB                 # Memory pool for all cores (see also --mem-per-cpu)
 
 # print info about current job
 echo "---------- JOB INFOS ------------"
@@ -21,7 +21,7 @@ conda activate myenv
 
 # Run our code
 echo "-------- PYTHON OUTPUT ----------"
-srun -n 1 -N 1 -c 32 --mem=700G --partition=a100 --time=1-14:00 --gres=gpu:4 accelerate launch diffusion_cfg.py
+srun -n 1 -N 1 -c 32 --mem=950GB --partition=a100 --time=1-14:00 --gres=gpu:4 accelerate launch diffusion_cfg.py
 echo "---------------------------------"
 
 # Deactivate environment again
