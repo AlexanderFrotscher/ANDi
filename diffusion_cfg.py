@@ -283,7 +283,7 @@ def train(args):
             ema.step_ema(ema_model, model)
             wandb.log({"MSE": loss.item()})
 
-        if epoch % 20 == 0 and accelerator.is_main_process:
+        if epoch % 8 == 0 and accelerator.is_main_process:
             my_model = accelerator.unwrap_model(model)
             my_ema_model = accelerator.unwrap_model(ema_model)
             # labels = torch.arange(args.num_classes).long().to(device)
@@ -317,7 +317,7 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.run_name = "BraTS21"
-    args.epochs = 181
+    args.epochs = 89
     args.batch_size = 16
     args.image_size = 64
     args.channels = 4
