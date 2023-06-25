@@ -131,7 +131,7 @@ class BratsDataset(Dataset):
         return self.df.shape[0]
 
     def __getitem__(self, idx):
-        id_ = self.df.loc[idx, "Brats20ID"]
+        id_ = self.df.loc[idx, "Brats21ID"]
         images = []
         # age = self.df.loc[idx, "Age"]
         slice = self.df.loc[idx, "Slice"]
