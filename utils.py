@@ -151,7 +151,7 @@ class BratsDataset(Dataset):
         img = self.normalize(img)
         img = img[0].float()
         img = self.transforms(img)
-        my_transform = transforms.Resize(self.image_size, antialias=True)
+        my_transform = transforms.Resize(128, antialias=True)
         mask = my_transform(mask)
 
         return img, mask
@@ -220,7 +220,7 @@ def Brats20(args, preload=False, eval=False):
         my_transforms = transforms.Compose(
             [
                 transforms.Resize(args.image_size, antialias=True),
-                # transforms.Lambda(lambda x: (x * 2) - 1),
+                transforms.Lambda(lambda x: (x * 2) - 1),
             ]
         )
     else:
