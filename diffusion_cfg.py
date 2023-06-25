@@ -204,8 +204,8 @@ class Diffusion:
                     noise_scale * noise + (1 - noise_scale) * zs[:, i]
                 )
         model.train()
-        #x = (x.clamp(-1, 1) + 1) / 2
-        #x = (x * 255).type(torch.uint8)
+        # x = (x.clamp(-1, 1) + 1) / 2
+        # x = (x * 255).type(torch.uint8)
         return x
 
     def create_mask(self, zs, timestep=None, threshold=2.58):  # bonferoni 4.374
@@ -216,15 +216,16 @@ class Diffusion:
         zs_mean = torch.mean(zs_mean, dim=1)
         zs_mean[zs_mean < threshold] = 0
         zs_mean[zs_mean != 0] = 1
-        return zs_mean
+        return zs_mean.type(torch.uint8)
 
 
 def create_difference(images, predictions, threshold=0.2):
     masks = torch.abs(images - predictions)
     masks = torch.mean(masks, dim=1)
-    masks[masks< threshold] = 0
-    masks[masks !=0] = 1
+    masks[masks < threshold] = 0
+    masks[masks != 0] = 1
     return masks.type(torch.uint8)
+
 
 def train(args):
     make_dicts(args.run_name)
@@ -244,6 +245,23 @@ def train(args):
     optimizer = optim.AdamW(
         model.parameters(), lr=1
     )  # scheduler multiplies base lr of optimizer -> lr = 1
+
+    mse = nn.MSELoss()
+    diffusion = Diffusion(img_size=args.image_size, device=device)
+    ema = EMA(0.995)
+    ema_model = copy.deepcopy(model).eval().requires_grad_(False)
+    # wandb.watch(model, log="all")
+
+    if args.train_continue == True:
+        args.target_lr = args.start_lr
+        ckpt = torch.load(args.current_model)
+        model.load_state_dict(ckpt)
+        ckpt = torch.load(args.current_opt)
+        optimizer.load_state_dict(ckpt)
+        ckpt = torch.load(args.current_ema)
+        ema_model.load_state_dict(ckpt)
+        ema_model.eval().requires_grad_(False)
+
     scheduler = LRWarmupCosineDecay(
         optimizer,
         int(0.05 * number_of_steps),
@@ -251,11 +269,6 @@ def train(args):
         args.start_lr,
         args.target_lr,
     )
-    mse = nn.MSELoss()
-    diffusion = Diffusion(img_size=args.image_size, device=device)
-    ema = EMA(0.995)
-    ema_model = copy.deepcopy(model).eval().requires_grad_(False)
-    # wandb.watch(model, log="all")
     model, ema_model, optimizer, scheduler, dataloader = accelerator.prepare(
         model, ema_model, optimizer, scheduler, dataloader
     )
@@ -316,20 +329,28 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "BraTS21"
-    args.epochs = 89
+    args.run_name = "BraTS21_2"
+    args.epochs = 41
     args.batch_size = 16
     args.image_size = 64
     args.channels = 4
     args.num_classes = None  # 116
-    args.dataset_path = '/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data'
+    args.dataset_path = (
+        "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
+    )
     # args.dataset_path = './data/BraTS20'
     args.start_lr = 9e-6
-    args.target_lr = 9e-5
-    args.path_to_csv = (
-        '/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_train.csv'
-    )
+    args.target_lr = 9e-6
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_train.csv"
     # args.path_to_csv = './data/survival_info_02.csv'
+    args.train_continue = True
+    args.current_model = (
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21/88_ckpt.pt"
+    )
+    args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21/88_ema_ckpt.pt"
+    args.current_opt = (
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21/88_optim.pt"
+    )
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )
@@ -341,59 +362,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    """
-    parser = argparse.ArgumentParser()
-    args = parser.parse_args()
-    args.dataset_path = './data/BraTS20'
-    args.path_to_csv = (
-        "./data/BraTS20/tumor_slices_small.csv"
-    )
-    args.batch_size = 2
-    args.image_size = 64
-    device = "cuda"
-    model = UNet_conditional().to(device)
-    ckpt = torch.load("./models/trained_models/ema_ckpt.pt")
-    model.load_state_dict(ckpt)
-    diffusion = Diffusion(noise_steps=1000, img_size=64, device=device)
-    #y = torch.Tensor([6] * n).long().to(device)
-    dataloader = Brats20(args,my_shuffle=False)
-    pbar = tqdm(dataloader)
-    my_transforms = transforms.Compose(
-        [   transforms.Lambda(lambda x: x/255),
-            transforms.Lambda(lambda x: (x * 2) - 1),
-        ])
-    my_images = []
-    my_images.append(np.array(Image.open('./data/BraTS20/my_test_0_A(2).jpg'))[:,:,0])
-    for i in range(1,4):
-        my_images.append(np.array(Image.open(f'./data/BraTS20/my_test_{i}.jpg')))
-    img = torch.stack([torch.from_numpy(x) for x in my_images], dim=0).unsqueeze(dim=0)
-    img = img.float()
-    img = my_transforms(img[0].to(device))
-    img = img[None,:,:,:]
-    xts, zs = diffusion.dpm_inversion(model, img, 500)
-    zs_mean = torch.mean(zs, dim=1)
-    my_slices = []
-    for i in range(zs_mean.shape[1]):
-        my_slices.append(zs_mean[:,i,:,:][0].cpu())
-    show_slices(my_slices)
-    mask = diffusion.create_mask(zs,500)
-    show_slices([mask[0].cpu()])
-    dice_scores_diff = []
-    dice_scores_mask = []
-    my_transform = transforms.Lambda(lambda x: (x*2)-1)
-    for i, (image, label) in enumerate(pbar):
-        image = my_transform(image).to(device)
-        label = label.to(device)
-        label = label[:,0,:,:].type(torch.uint8)
-        xts, zs = diffusion.dpm_inversion(model, image, 200)
-        my_images = diffusion.guide_restoration(model,xts,zs, cfg_scale=0, noise_scale=0.5)
-        my_masks = create_difference(image,my_images)
-        #check = my_masks * label
-        #show_slices([my_masks[0].cpu(),label[0].cpu(),check[0].cpu()])
-        dice_scores_diff.extend([float(x) for x in dice(my_masks,label)])
-        #xts, zs = diffusion.dpm_inversion(model, image, 500)
-        #mask = diffusion.create_mask(zs,500)
-        #dice_scores_mask.extend([float(x) for x in dice(mask,label)])
-    #print(np.asarray(dice_scores_diff).mean())
-    #print(np.asarray(dice_scores_mask).mean())
-    """

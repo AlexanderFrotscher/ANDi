@@ -19,7 +19,6 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
 
-
 def plot_images(images, mode="RGB"):
     if mode == "L":
         batch_size = images.shape[0]
@@ -120,10 +119,12 @@ class BratsDataset(Dataset):
         df: pd.DataFrame,
         my_transforms: transforms,
         dataset_path: str,
+        image_size: int,
     ):
         self.df = df
         self.transforms = my_transforms
         self.dataset_path = dataset_path
+        self.image_size = image_size
         self.data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
 
     def __len__(self):
@@ -132,25 +133,26 @@ class BratsDataset(Dataset):
     def __getitem__(self, idx):
         id_ = self.df.loc[idx, "Brats20ID"]
         images = []
-        #age = self.df.loc[idx, "Age"]
+        # age = self.df.loc[idx, "Age"]
         slice = self.df.loc[idx, "Slice"]
         for data_type in self.data_types:
             img_path = os.path.join(self.dataset_path, id_, id_ + data_type)
             img = np.asarray(nib.load(img_path).dataobj[:, :, slice], dtype=float)
             images.append(img)
 
-        mask_path = os.path.join(self.dataset_path,id_,id_+'_seg.nii.gz')
-        mask = np.asarray(nib.load(mask_path).dataobj[:,:,slice], dtype=int)
+        mask_path = os.path.join(self.dataset_path, id_, id_ + "_seg.nii.gz")
+        mask = np.asarray(nib.load(mask_path).dataobj[:, :, slice], dtype=int)
         mask[mask == 1] = 1
         mask[mask == 2] = 1
         mask[mask == 4] = 1
         mask = torch.from_numpy(mask)
-        mask = mask[None,:,:]
+        mask = mask[None, :, :]
         img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(dim=0)
         img = self.normalize(img)
         img = img[0].float()
         img = self.transforms(img)
-        mask = self.transforms(mask)
+        my_transform = transforms.Resize(self.image_size, antialias=True)
+        mask = my_transform(mask)
 
         return img, mask
 
@@ -206,23 +208,32 @@ def preprocess_mask(mask):
     mask_WT[mask_WT == 4] = 1
     return mask_WT
 
+
 def dice(pred, truth):
-    num = 2*((pred * truth).sum(dim=(1,2)).type(torch.float))
-    den = (pred.sum(dim=(1,2)) + truth.sum(dim=(1,2))).type(torch.float)
-    return num/den
+    num = 2 * ((pred * truth).sum(dim=(1, 2)).type(torch.float))
+    den = (pred.sum(dim=(1, 2)) + truth.sum(dim=(1, 2))).type(torch.float)
+    return num / den
 
 
-def Brats20(args, preload=False, my_shuffle = True):
-    my_transforms = transforms.Compose(
-        [
-            transforms.Resize(args.image_size, antialias=True),
-            transforms.RandomHorizontalFlip(0.4),
-            transforms.Lambda(
-                lambda x: (x * 2) - 1
-            ),  # bring to [-1,1] but does not work on windows
-            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        ]
-    )
+def Brats20(args, preload=False, eval=False):
+    if eval == True:
+        my_transforms = transforms.Compose(
+            [
+                transforms.Resize(args.image_size, antialias=True),
+                # transforms.Lambda(lambda x: (x * 2) - 1),
+            ]
+        )
+    else:
+        my_transforms = transforms.Compose(
+            [
+                transforms.Resize(args.image_size, antialias=True),
+                transforms.RandomHorizontalFlip(0.4),
+                transforms.Lambda(
+                    lambda x: (x * 2) - 1
+                ),  # bring to [-1,1] but does not work on windows
+                # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            ]
+        )
     if preload == True:
         df = pd.read_csv(args.path_to_csv)
         root_path = args.dataset_path
@@ -251,13 +262,13 @@ def Brats20(args, preload=False, my_shuffle = True):
                     my_slices.append(img[:, :, :, i])
         dataset = preload_dataset(my_slices, my_transforms)
         dataloader = DataLoader(
-            dataset, batch_size=args.batch_size, num_workers=2, shuffle=my_shuffle
+            dataset, batch_size=args.batch_size, num_workers=2, shuffle=~eval
         )
     else:
         df = pd.read_csv(args.path_to_csv)
-        dataset = BratsDataset(df, my_transforms, args.dataset_path)
+        dataset = BratsDataset(df, my_transforms, args.dataset_path, args.image_size)
         dataloader = DataLoader(
-            dataset, batch_size=args.batch_size, num_workers=4, shuffle=my_shuffle
+            dataset, batch_size=args.batch_size, num_workers=4, shuffle=~eval
         )
     return dataloader
 
