@@ -129,6 +129,37 @@ class Diffusion:
         x = (x * 255).type(torch.uint8)
         return x
 
+    def dpm_encoder(self,model,images,timestemp=None):
+        if timestemp is None:
+            timestemp = self.noise_steps
+        num_images = images.shape[0]
+        model.eval()
+        with torch.no_grad():
+            # First, sample from the forward process by drawing only once
+            xts = torch.zeros(
+                (
+                    num_images,
+                    timestemp,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            zs = torch.zeros(
+                (
+                    num_images,
+                    timestemp,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            t = (torch.ones(num_images) * timestemp).long().to(self.device)
+            x_t, noise = self.noise_images(images, t)
+            xts[:,timestemp] = x_t
+            for i in tqdm(reversed(range(0, timestemp)), position=0):
+                pass
+                 
     def dpm_inversion(self, model, images, timestemp=None):
         if timestemp is None:
             timestemp = self.noise_steps
@@ -148,7 +179,7 @@ class Diffusion:
             zs = torch.zeros(
                 (
                     num_images,
-                    timestemp,
+                    timestemp-1,
                     images.shape[1],
                     images.shape[2],
                     images.shape[3],
@@ -168,13 +199,13 @@ class Diffusion:
                 x_t = xts[:, i]
                 x_tm1 = xts[:, i - 1]
                 if i == 1:
-                    zs[:, i] = torch.zeros_like(x_t)
+                    zs[:, i-1] = torch.zeros_like(x_t)
                 else:
                     predicted_noise = model(x_t, t, None)
                     mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                     beta = self.beta[t][:, None, None, None]
                     z_t = (x_tm1 - mu_t) / torch.sqrt(beta)
-                    zs[:, i] = z_t
+                    zs[:, i-1] = z_t
                     # avoid accumulation error
                     x_tm1 = mu_t + (torch.sqrt(beta) * z_t)
                     xts[:, i - 1] = x_tm1
@@ -329,8 +360,8 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "BraTS21_2"
-    args.epochs = 41
+    args.run_name = "BraTS21_3"
+    args.epochs = 89
     args.batch_size = 16
     args.image_size = 64
     args.channels = 4
@@ -345,11 +376,11 @@ def main():
     # args.path_to_csv = './data/survival_info_02.csv'
     args.train_continue = True
     args.current_model = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21/88_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_2/40_ckpt.pt"
     )
-    args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21/88_ema_ckpt.pt"
+    args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_2/40_ema_ckpt.pt"
     args.current_opt = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21/88_optim.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_2/40_optim.pt"
     )
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change

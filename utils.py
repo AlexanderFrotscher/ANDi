@@ -131,13 +131,13 @@ class BratsDataset(Dataset):
         return self.df.shape[0]
 
     def __getitem__(self, idx):
-        id_ = self.df.loc[idx, "Brats21ID"]
+        id_ = self.df.loc[idx, "Brats20ID"]
         images = []
         # age = self.df.loc[idx, "Age"]
         slice = self.df.loc[idx, "Slice"]
         for data_type in self.data_types:
             img_path = os.path.join(self.dataset_path, id_, id_ + data_type)
-            img = np.asarray(nib.load(img_path).dataobj[:, :, slice], dtype=float)
+            img = np.asarray(nib.load(img_path).dataobj, dtype=float)
             images.append(img)
 
         mask_path = os.path.join(self.dataset_path, id_, id_ + "_seg.nii.gz")
@@ -148,8 +148,8 @@ class BratsDataset(Dataset):
         mask = torch.from_numpy(mask)
         mask = mask[None, :, :]
         img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(dim=0)
-        img = self.normalize(img)
-        img = img[0].float()
+        img = self.normalize(img[0].float())
+        img = img[:,:,:,slice]
         img = self.transforms(img)
         my_transform = transforms.Resize(128, antialias=True)
         mask = my_transform(mask)
@@ -157,14 +157,11 @@ class BratsDataset(Dataset):
         return img, mask
 
     def normalize(self, images):
-        """
-        Normalise the intensity values in each modality by scaling by 99 percentile foreground (nonzero) value.
-        """
-        for modality in range(images.shape[1]):
-            i_ = images[:, modality, :, :].reshape(-1)
+        for modality in range(images.shape[0]):
+            i_ = images[modality, :, :, :].reshape(-1)
             i_ = i_[i_ > 0]
             p_99 = torch.quantile(i_, 0.99)
-            images[:, modality, :, :] /= p_99
+            images[modality, :, :, :] /= p_99
 
         return images
 
@@ -220,7 +217,7 @@ def Brats20(args, preload=False, eval=False):
         my_transforms = transforms.Compose(
             [
                 transforms.Resize(args.image_size, antialias=True),
-                transforms.Lambda(lambda x: (x * 2) - 1),
+                #transforms.Lambda(lambda x: (x * 2) - 1),
             ]
         )
     else:
@@ -262,13 +259,13 @@ def Brats20(args, preload=False, eval=False):
                     my_slices.append(img[:, :, :, i])
         dataset = preload_dataset(my_slices, my_transforms)
         dataloader = DataLoader(
-            dataset, batch_size=args.batch_size, num_workers=2, shuffle=~eval
+            dataset, batch_size=args.batch_size, num_workers=2, shuffle=True
         )
     else:
         df = pd.read_csv(args.path_to_csv)
         dataset = BratsDataset(df, my_transforms, args.dataset_path, args.image_size)
         dataloader = DataLoader(
-            dataset, batch_size=args.batch_size, num_workers=4, shuffle=~eval
+            dataset, batch_size=args.batch_size, num_workers=4, shuffle=False
         )
     return dataloader
 
