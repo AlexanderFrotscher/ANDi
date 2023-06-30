@@ -378,8 +378,8 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "BraTS21_3"
-    args.epochs = 89
+    args.run_name = "BraTS21_4"
+    args.epochs = 49
     args.batch_size = 16
     args.image_size = 64
     args.channels = 4
@@ -388,16 +388,16 @@ def main():
         "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     )
     # args.dataset_path = './data/BraTS20'
-    args.start_lr = 9e-6
-    args.target_lr = 9e-6
+    args.start_lr = 2e-5
+    args.target_lr = 2e-5
     args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_train.csv"
     # args.path_to_csv = './data/survival_info_02.csv'
     args.train_continue = True
     args.current_model = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_2/40_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_3/64_ckpt.pt"
     )
-    args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_2/40_ema_ckpt.pt"
-    args.current_opt = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_2/40_optim.pt"
+    args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_3/64_ema_ckpt.pt"
+    args.current_opt = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_3/64_optim.pt"
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )
