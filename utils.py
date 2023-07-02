@@ -131,7 +131,7 @@ class BratsDataset(Dataset):
         return self.df.shape[0]
 
     def __getitem__(self, idx):
-        id_ = self.df.loc[idx, "Brats20ID"]
+        id_ = self.df.loc[idx, "BraTS21ID"]
         images = []
         # age = self.df.loc[idx, "Age"]
         slice = self.df.loc[idx, "Slice"]
@@ -217,7 +217,7 @@ def Brats20(args, preload=False, eval=False):
         my_transforms = transforms.Compose(
             [
                 transforms.Resize(args.image_size, antialias=True),
-                #transforms.Lambda(lambda x: (x * 2) - 1),
+                transforms.Lambda(lambda x: (x * 2) - 1),
             ]
         )
     else:
