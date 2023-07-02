@@ -16,7 +16,7 @@ def preprocess_mask(mask):
 
 
 df = pd.read_csv(
-    "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_train.csv"
+    "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_val.csv"
 )
 root_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
 ids = df.loc[:, "BraTS21ID"]
@@ -44,11 +44,11 @@ tumor_dict = {"BraTS21ID": tumor_ids, "Slice": tumor_slices}
 healthy_dict = {"BraTS21ID": healthy_ids, "Slice": healthy_slices}
 df_tumor = pd.DataFrame(tumor_dict)
 df_tumor.to_csv(
-    "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/tumor_slices_train.csv",
+    "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/tumor_slices_val.csv",
     index=False,
 )
 df_healthy = pd.DataFrame(healthy_dict)
 df_healthy.to_csv(
-    "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/healthy_slices_train.csv",
+    "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/healthy_slices_val.csv",
     index=False,
 )
