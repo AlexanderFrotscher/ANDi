@@ -224,7 +224,7 @@ def Brats20(args, preload=False, eval=False):
         my_transforms = transforms.Compose(
             [
                 transforms.Resize(args.image_size, antialias=True),
-                transforms.RandomHorizontalFlip(0.4),
+                #transforms.RandomHorizontalFlip(0.4),
                 transforms.Lambda(
                     lambda x: (x * 2) - 1
                 ),  # bring to [-1,1] but does not work on windows
