@@ -379,7 +379,7 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.run_name = "BraTS21_5"
-    args.epochs = 361
+    args.epochs = 161
     args.batch_size = 20
     args.image_size = 64
     args.channels = 4
