@@ -29,8 +29,8 @@ def main():
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
     model = UNet_conditional().to(device)
-    ckpt = torch.load("/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_ema_ckpt.pt")
-    #ckpt = torch.load("./models/trained_models/160_ema_ckpt.pt")
+    #ckpt = torch.load("/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_ema_ckpt.pt")
+    ckpt = torch.load("./models/trained_models/144_ema_ckpt.pt")
     model.load_state_dict(ckpt)
     diffusion = Diffusion(noise_steps=1000, img_size=64, device=device)
     dataloader = Brats20(args, eval=True)
@@ -38,12 +38,12 @@ def main():
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
     threshold_diff = [x / 100 for x in range(1, 100)]
-    threshold_test = [round(x,3) for x in np.arange(0.7,1.6,0.1)]
-    threshold_test_1 = [round(x, 3) for x in np.arange(0.7, 1.6, 0.1)]
-    threshold_test_2 = [round(-x, 3) for x in np.arange(1.9, 2.8, 0.1)]
-    threshold_test_3 = [round(x, 3) for x in np.arange(1.4, 2, 0.1)]
-    threshold_test_3_m = [round(-x, 3) for x in np.arange(1.6, 2.4, 0.1)]
-    threshold_test_4 = [round(x, 3) for x in np.arange(1.6, 2.4, 0.1)]
+    threshold_test = [round(x,3) for x in np.arange(0.5,1.6,0.1)]
+    threshold_test_1 = [round(x, 3) for x in np.arange(1.0, 1.6, 0.1)]
+    threshold_test_2 = [round(-x, 3) for x in np.arange(2.2, 2.8, 0.1)]
+    threshold_test_3 = [round(x, 3) for x in np.arange(2.7, 3.3, 0.1)]
+    threshold_test_3_m = [round(-x, 3) for x in np.arange(2.7, 3.3, 0.1)]
+    threshold_test_4 = [round(x, 3) for x in np.arange(1.5, 2.0, 0.1)]
     my_thresholds = list(itertools.product(threshold_test_1,threshold_test_2,threshold_test_3,threshold_test_3_m,threshold_test_4))
 
     dice_scores_diff = {i: [] for i in threshold_diff}
@@ -52,14 +52,14 @@ def main():
     dice_scores_mask = {i: [] for i in threshold_test}
     dice_scores_mask_3 = {(a,b,c,d,e):[] for (a,b,c,d,e) in my_thresholds}
     my_resize = transforms.Resize(128, antialias=True)
-    #my_transform = transforms.Lambda(lambda x: (x * 2) - 1)
+    my_transform = transforms.Lambda(lambda x: (x * 2) - 1)
     for i, (image, label) in enumerate(pbar):
-        #image = my_transform(image).to(device)
+        image = my_transform(image).to(device)
         label = label.to(device)
         label = label[:, 0, :, :].type(torch.uint8)
         num_steps = 1000
         xts, zs = diffusion.dpm_inversion(model, image, num_steps)
-        #my_mean = torch.abs(torch.mean(zs,dim=1))
+        #my_mean = torch.mean(zs,dim=1) * np.sqrt(999)
         #plot_images(my_mean, mode='L')
         """
         my_images_one = diffusion.guide_restoration(
@@ -158,7 +158,11 @@ def create_mask_3(zs,my_th, steps):
     my_mean = torch.mean(zs,dim=1) * np.sqrt(steps-1)
     my_mean[:,0] = torch.where(my_mean[:,0]>th_m1,1.0,0.0)
     my_mean[:,1] = torch.where(my_mean[:,1]<th_m2,1.0,0.0)
-    my_mean[:,2] = torch.where((my_mean[:,2]>th_m3) | (my_mean[:,2]<th_m3_m),1.0,0.0)
+    mask_3_p = torch.where(my_mean[:,2]>th_m3,1.0,0.0)
+    mask_3_m = torch.where(my_mean[:,2]<th_m3_m,1.0,0.0)
+    mask_3 = mask_3_p + mask_3_m
+    mask_3[mask_3>0] = 1
+    my_mean[:,2] = mask_3
     my_mean[:,3] = torch.where(my_mean[:,3]>th_m4,1.0,0.0)
     my_mean = torch.mean(my_mean,dim=1)
     my_mean[my_mean>0] = 1
