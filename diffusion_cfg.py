@@ -182,9 +182,11 @@ class Diffusion:
                 zs[:, i - 1] = z_t
         return xts, zs
 
-    def dpm_inversion(self, model, images, timestemp=None):
+    def dpm_inversion(self, model, images, scaling=None, timestemp=None):
         if timestemp is None:
             timestemp = self.noise_steps
+        if scaling is None:
+            scaling = self.beta
         num_images = images.shape[0]
         model.eval()
         with torch.no_grad():
@@ -220,13 +222,14 @@ class Diffusion:
                 x_tm1 = xts[:, i - 1]
                 predicted_noise = model(x_t, t, None)
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
-                beta = self.beta[t][:, None, None, None]
-                z_t = (x_tm1 - mu_t) / torch.sqrt(beta)
+                #beta = self.beta[t][:, None, None, None]
+                scale_t = scaling[t][:,None,None,None]
+                z_t = (x_tm1 - mu_t) / torch.sqrt(scale_t)
                 zs[:, i - 1] = z_t
-                if i > 1:
+                #if i > 1:
                     # avoid accumulation error
-                    x_tm1 = mu_t + (torch.sqrt(beta) * z_t)
-                    xts[:, i - 1] = x_tm1
+                #    x_tm1 = mu_t + (torch.sqrt(scale_t) * z_t)
+                #    xts[:, i - 1] = x_tm1
         return xts, zs
 
     def guide_restoration(self, model, xts, zs, cfg_scale=1.5, noise_scale=0.5):
@@ -378,8 +381,8 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "BraTS21_5"
-    args.epochs = 161
+    args.run_name = "BraTS21_6"
+    args.epochs = 81
     args.batch_size = 20
     args.image_size = 64
     args.channels = 4
@@ -389,15 +392,15 @@ def main():
     )
     # args.dataset_path = './data/BraTS20'
     args.start_lr = 2e-5
-    args.target_lr = 1e-4
+    args.target_lr = 2e-5
     args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_train.csv"
     # args.path_to_csv = './data/survival_info_02.csv'
-    args.train_continue = False
+    args.train_continue = True
     args.current_model = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_3/64_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_ckpt.pt"
     )
-    args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_3/64_ema_ckpt.pt"
-    args.current_opt = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_3/64_optim.pt"
+    args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_ema_ckpt.pt"
+    args.current_opt = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_optim.pt"
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )
