@@ -52,10 +52,10 @@ def main():
     dice_scores_mask = {i: [] for i in threshold_test}
     dice_scores_mask_3 = {(a,b,c,d,e):[] for (a,b,c,d,e) in my_thresholds}
     my_resize = transforms.Resize(128, antialias=True)
-    my_transform = transforms.Lambda(lambda x: (x * 2) - 1)
+    #my_transform = transforms.Lambda(lambda x: (x * 2) - 1)
     #scaling = diffusion.alpha_hat
     for i, (image, label) in enumerate(pbar):
-        image = my_transform(image).to(device)
+        #image = my_transform(image).to(device)
         label = label.to(device)
         label = label[:, 0, :, :].type(torch.uint8)
         num_steps = 1000
