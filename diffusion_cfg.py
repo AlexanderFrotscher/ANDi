@@ -154,10 +154,10 @@ class Diffusion:
                     images.shape[3],
                 )
             ).to(self.device)
-            t = (torch.ones(num_images) * timestemp-1).long().to(self.device)
+            t = (torch.ones(num_images) * timestemp - 1).long().to(self.device)
             x_t, noise = self.noise_images(images, t)
             xts[:, timestemp - 1] = x_t
-            for i in tqdm(reversed(range(1, timestemp-1)), position=0):
+            for i in tqdm(reversed(range(1, timestemp - 1)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
                 alpha = self.alpha[t][:, None, None, None]
@@ -222,14 +222,10 @@ class Diffusion:
                 x_tm1 = xts[:, i - 1]
                 predicted_noise = model(x_t, t, None)
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
-                #beta = self.beta[t][:, None, None, None]
-                scale_t = scaling[t][:,None,None,None]
+                # beta = self.beta[t][:, None, None, None]
+                scale_t = scaling[t][:, None, None, None]
                 z_t = (x_tm1 - mu_t) / torch.sqrt(scale_t)
                 zs[:, i - 1] = z_t
-                #if i > 1:
-                    # avoid accumulation error
-                #    x_tm1 = mu_t + (torch.sqrt(scale_t) * z_t)
-                #    xts[:, i - 1] = x_tm1
         return xts, zs
 
     def guide_restoration(self, model, xts, zs, cfg_scale=1.5, noise_scale=0.5):
@@ -253,30 +249,10 @@ class Diffusion:
                 else:
                     noise = torch.zeros_like(x)
                 x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * (
-                    noise_scale * noise + (1 - noise_scale) * zs[:, i-1]
+                    noise_scale * noise + (1 - noise_scale) * zs[:, i - 1]
                 )
         model.train()
-        # x = (x.clamp(-1, 1) + 1) / 2
-        # x = (x * 255).type(torch.uint8)
         return x
-
-    def create_mask(self, zs, timestep=None, threshold=2.58):  # bonferoni 4.374
-        if timestep is None:
-            timestep = self.noise_steps
-        zs_mean = torch.mean(zs, dim=1)
-        zs_mean = (torch.abs(zs_mean)) * np.sqrt(timestep)
-        zs_mean = torch.mean(zs_mean, dim=1)
-        zs_mean[zs_mean < threshold] = 0
-        zs_mean[zs_mean != 0] = 1
-        return zs_mean.type(torch.uint8)
-
-
-def create_difference(images, predictions, threshold=0.2):
-    masks = torch.abs(images - predictions)
-    masks = torch.mean(masks, dim=1)
-    masks[masks < threshold] = 0
-    masks[masks != 0] = 1
-    return masks.type(torch.uint8)
 
 
 def train(args):
@@ -284,7 +260,7 @@ def train(args):
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
-    dataloader = Brats20(args, preload=True)
+    dataloader = Brats21(args, preload=True)
     steps_per_epoch = int(np.ceil(len(dataloader.dataset) / args.batch_size))
     number_of_steps = steps_per_epoch * args.epochs
     model = UNet_conditional(
@@ -331,6 +307,7 @@ def train(args):
         for i, (images) in enumerate(pbar):
             # images = images.to(device)
             # labels = labels.to(device)
+            images = (images * 2) - 1  # normalization
             t = diffusion.sample_timesteps(images.shape[0]).to(
                 device
             )  # every picture gets one timestep in one epoch
@@ -381,8 +358,8 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "BraTS21_6"
-    args.epochs = 81
+    args.run_name = "BraTS21_hist"
+    args.epochs = 201
     args.batch_size = 20
     args.image_size = 64
     args.channels = 4
@@ -392,13 +369,11 @@ def main():
     )
     # args.dataset_path = './data/BraTS20'
     args.start_lr = 2e-5
-    args.target_lr = 2e-5
+    args.target_lr = 1e-4
     args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_train.csv"
     # args.path_to_csv = './data/survival_info_02.csv'
-    args.train_continue = True
-    args.current_model = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_ckpt.pt"
-    )
+    args.train_continue = False
+    args.current_model = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_ckpt.pt"
     args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_ema_ckpt.pt"
     args.current_opt = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_optim.pt"
     torch.backends.cudnn.benchmark = (

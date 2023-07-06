@@ -15,6 +15,7 @@ import torch
 import torchvision
 from matplotlib import pyplot as plt
 from PIL import Image
+from skimage.exposure import equalize_hist
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
@@ -93,10 +94,6 @@ def cifar_10(args):
             transforms.Resize(args.image_size),
             transforms.RandomHorizontalFlip(0.4),
             transforms.ToTensor(),  # divide by 255
-            # transforms.Lambda(
-            #    lambda x: (x * 2) - 1
-            # ),  # bring to [-1,1] but does not work on windows
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ]
     )
     ds_train = datasets.CIFAR10(
@@ -120,11 +117,13 @@ class BratsDataset(Dataset):
         my_transforms: transforms,
         dataset_path: str,
         image_size: int,
+        hist: bool,
     ):
         self.df = df
         self.transforms = my_transforms
         self.dataset_path = dataset_path
         self.image_size = image_size
+        self.hist = hist
         self.data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
 
     def __len__(self):
@@ -147,23 +146,19 @@ class BratsDataset(Dataset):
         mask[mask == 4] = 1
         mask = torch.from_numpy(mask)
         mask = mask[None, :, :]
-        img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(dim=0)
-        img = self.normalize(img[0].float())
-        img = img[:,:,:,slice]
+        if self.hist == True:
+            img = np.stack([x for x in images])
+            img = hist_norm(img)
+        else:
+            img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(
+                dim=0
+            )
+            img = normalize_volume(img[0].float())
+        img = img[:, :, :, slice]
         img = self.transforms(img)
         my_transform = transforms.Resize(128, antialias=True)
         mask = my_transform(mask)
-
         return img, mask
-
-    def normalize(self, images):
-        for modality in range(images.shape[0]):
-            i_ = images[modality, :, :, :].reshape(-1)
-            i_ = i_[i_ > 0]
-            p_99 = torch.quantile(i_, 0.99)
-            images[modality, :, :, :] /= p_99
-
-        return images
 
 
 class preload_dataset(Dataset):
@@ -198,6 +193,17 @@ def normalize_volume(images):
     return images
 
 
+def hist_norm(images):
+    for modality in range(images.shape[0]):
+        i_ = images[modality, :, :, :]
+        mask = np.zeros_like(i_)
+        mask[i_ > 0] = 1
+        i_ = equalize_hist(i_.astype(np.longlong), mask=mask)
+        i_ *= mask
+        images[modality, :, :, :] = i_
+    return torch.from_numpy(images)
+
+
 def preprocess_mask(mask):
     mask_WT = mask.copy()
     mask_WT[mask_WT == 1] = 1
@@ -212,23 +218,18 @@ def dice(pred, truth):
     return num / den
 
 
-def Brats20(args, preload=False, eval=False):
+def Brats21(args, preload=False, eval=False, hist=True):
     if eval == True:
         my_transforms = transforms.Compose(
             [
                 transforms.Resize(args.image_size, antialias=True),
-                transforms.Lambda(lambda x: (x * 2) - 1),
             ]
         )
     else:
         my_transforms = transforms.Compose(
             [
                 transforms.Resize(args.image_size, antialias=True),
-                #transforms.RandomHorizontalFlip(0.4),
-                transforms.Lambda(
-                    lambda x: (x * 2) - 1
-                ),  # bring to [-1,1] but does not work on windows
-                # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                # transforms.RandomHorizontalFlip(0.4),
             ]
         )
     if preload == True:
@@ -246,10 +247,16 @@ def Brats20(args, preload=False, eval=False):
                 img = np.asarray(nib.load(img_path).dataobj, dtype=float)
                 images.append(img)
 
-            img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(
-                dim=0
-            )
-            img = normalize_volume(img[0].float())
+            if hist == True:
+                img = np.stack([x for x in images])
+                img = hist_norm(img)
+
+            else:
+                img = torch.stack(
+                    [torch.from_numpy(x) for x in images], dim=0
+                ).unsqueeze(dim=0)
+                img = normalize_volume(img[0].float())
+
             mask = preprocess_mask(mask)
             for i in range(img.shape[3]):
                 my_slice = img[0, :, :, i]
@@ -263,7 +270,7 @@ def Brats20(args, preload=False, eval=False):
         )
     else:
         df = pd.read_csv(args.path_to_csv)
-        dataset = BratsDataset(df, my_transforms, args.dataset_path, args.image_size)
+        dataset = BratsDataset(df, my_transforms, args.dataset_path, args.image_size,hist=hist)
         dataloader = DataLoader(
             dataset, batch_size=args.batch_size, num_workers=4, shuffle=False
         )
