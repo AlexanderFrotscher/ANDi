@@ -201,7 +201,7 @@ def hist_norm(images):
         i_ = equalize_hist(i_.astype(np.longlong), mask=mask)
         i_ *= mask
         images[modality, :, :, :] = i_
-    return torch.from_numpy(images)
+    return torch.Tensor(images)
 
 
 def preprocess_mask(mask):
