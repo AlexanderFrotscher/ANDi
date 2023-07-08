@@ -358,7 +358,7 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "BraTS21_hist"
+    args.run_name = "BraTS21_own_hist"
     args.epochs = 201
     args.batch_size = 20
     args.image_size = 64

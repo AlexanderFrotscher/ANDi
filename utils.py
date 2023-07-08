@@ -15,7 +15,7 @@ import torch
 import torchvision
 from matplotlib import pyplot as plt
 from PIL import Image
-from skimage.exposure import equalize_hist
+import skimage.exposure as ex
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
@@ -148,7 +148,7 @@ class BratsDataset(Dataset):
         mask = mask[None, :, :]
         if self.hist == True:
             img = np.stack([x for x in images])
-            img = hist_norm(img)
+            img = own_hist(img)
         else:
             img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(
                 dim=0
@@ -193,14 +193,22 @@ def normalize_volume(images):
     return images
 
 
-def hist_norm(images):
+def own_hist(images):
     for modality in range(images.shape[0]):
-        i_ = images[modality, :, :, :]
+        i_ = images[modality, :, :,:]
         mask = np.zeros_like(i_)
         mask[i_ > 0] = 1
-        i_ = equalize_hist(i_.astype(np.longlong), mask=mask)
+        mask = np.array(mask, dtype=bool)
+        i_ = i_ / np.max(i_)
+        cdf, bin_centers = ex.cumulative_distribution(i_.astype(np.float32)[mask],nbins=512)
+        if modality == 1:
+             i_ = np.clip(i_,bin_centers[100],bin_centers[511])
+             i_ = ex.adjust_sigmoid(i_,cutoff=bin_centers[400],gain=4)
+        else:
+            i_ = np.clip(i_,bin_centers[0],bin_centers[199])
+            i_ = ex.adjust_sigmoid(i_,cutoff=bin_centers[150],gain=11)
         i_ *= mask
-        images[modality, :, :, :] = i_
+        images[modality,:,:,:] = i_
     return torch.Tensor(images)
 
 
@@ -249,7 +257,7 @@ def Brats21(args, preload=False, eval=False, hist=True):
 
             if hist == True:
                 img = np.stack([x for x in images])
-                img = hist_norm(img)
+                img = own_hist(img)
 
             else:
                 img = torch.stack(
