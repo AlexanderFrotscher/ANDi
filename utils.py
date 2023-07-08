@@ -195,20 +195,23 @@ def normalize_volume(images):
 
 def own_hist(images):
     for modality in range(images.shape[0]):
-        i_ = images[modality, :, :,:]
+        i_ = images[modality, :, :, :]
         mask = np.zeros_like(i_)
         mask[i_ > 0] = 1
         mask = np.array(mask, dtype=bool)
         i_ = i_ / np.max(i_)
-        cdf, bin_centers = ex.cumulative_distribution(i_.astype(np.float32)[mask],nbins=512)
+        cdf, bin_centers = ex.cumulative_distribution(
+            i_.astype(np.float32)[mask], nbins=512
+        )
         if modality == 1:
-             i_ = np.clip(i_,bin_centers[100],bin_centers[511])
-             i_ = ex.adjust_sigmoid(i_,cutoff=bin_centers[400],gain=4)
+            i_ = np.clip(i_, bin_centers[100], bin_centers[511])
+            i_ = ex.adjust_sigmoid(i_, cutoff=bin_centers[400], gain=4)
         else:
-            i_ = np.clip(i_,bin_centers[0],bin_centers[199])
-            i_ = ex.adjust_sigmoid(i_,cutoff=bin_centers[150],gain=11)
+            i_ = np.clip(i_, bin_centers[0], bin_centers[199])
+            i_ = ex.adjust_sigmoid(i_, cutoff=bin_centers[150], gain=12)
+        i_ = i_ / np.max(i_)
         i_ *= mask
-        images[modality,:,:,:] = i_
+        images[modality, :, :, :] = i_
     return torch.Tensor(images)
 
 
@@ -278,7 +281,9 @@ def Brats21(args, preload=False, eval=False, hist=True):
         )
     else:
         df = pd.read_csv(args.path_to_csv)
-        dataset = BratsDataset(df, my_transforms, args.dataset_path, args.image_size,hist=hist)
+        dataset = BratsDataset(
+            df, my_transforms, args.dataset_path, args.image_size, hist=hist
+        )
         dataloader = DataLoader(
             dataset, batch_size=args.batch_size, num_workers=4, shuffle=False
         )
