@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/tumor_slices_val.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/tumor_slices_val_small.csv"
     #args.path_to_csv = "./data/BraTS20/tumor_slices_small.csv"
     args.batch_size = 16
     args.image_size = 64
@@ -30,12 +30,12 @@ def main():
     device = accelerator.device
     model = UNet_conditional().to(device)
     ckpt = torch.load(
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_own_hist/160_ema_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_ema_ckpt.pt"
     )
     #ckpt = torch.load("./models/trained_models/160_ema_ckpt.pt")
     model.load_state_dict(ckpt)
     diffusion = Diffusion(noise_steps=1000, img_size=64, device=device)
-    dataloader = Brats21(args, eval=True)
+    dataloader = Brats21(args, eval=True, hist=False)
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
@@ -64,7 +64,7 @@ def main():
         label = label[:, 0, :, :].type(torch.uint8)
         num_steps = 1000
         xts, zs = diffusion.dpm_inversion(model, image, timestemp=num_steps)
-        #my_mean = (torch.mean(zs,dim=1) * 1000)
+        #my_mean = (torch.mean(zs,dim=1) * np.sqrt(1000))
         #plot_images(my_mean,mode='L')
         #my_images_one = diffusion.guide_restoration(
         #    model, xts[:, 0:1000], zs[:, 0:1000], cfg_scale=0, noise_scale=0
