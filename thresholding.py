@@ -18,27 +18,39 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_val_small.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_val_big.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 10
+    args.batch_size = 15
     accelerator = Accelerator()
     device = accelerator.device
 
     dataloader = Brats_Volume(args, hist=True)
     dataloader = accelerator.prepare(dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.85, 0.9, 0.01)]
+    threshold_test = [round(x, 3) for x in np.arange(0.8, 0.9, 0.01)]
     dice_scores_mask = {i: [] for i in threshold_test}
 
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
         for key in dice_scores_mask:
             my_mask = torch.where(image > key,1.0,0.0)
-            my_mask = connected_components_3d(my_mask)
             my_mask = my_mask.type(torch.bool).to(device)
             dice_scores_mask[key].extend([float(x) for x in dice(my_mask, label)])
     for key in dice_scores_mask:
         dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
+
+    # use best threshold with connected_components
+    my_scores = []
+    my_thresh = max(dice_scores_mask,key=dice_scores_mask.get)
+    for i, (image, label) in enumerate(pbar):
+        image = (image * 2) - 1
+        my_mask = torch.where(image > my_thresh,1.0,0.0)
+        my_mask = connected_components_3d(my_mask)
+        my_mask = my_mask.type(torch.bool).to(device)
+        my_scores.extend([float(x) for x in dice(my_mask, label)])
+    my_dice = np.asarray(my_scores).mean()
+
+    dice_scores_mask[f'{my_thresh}_cc'] = my_dice
     df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
     #df_mask.to_csv("./results/Threshold_results/dice_scores.csv")
     df_mask.to_csv(
@@ -125,7 +137,8 @@ def hist_norm(images):
         i_ = images[modality, :, :,:]
         mask = np.zeros_like(i_)
         mask[i_ > 0] = 1
-        i_ = ex.equalize_hist(i_.astype(np.uint16), mask=mask)
+        #i_ = i_ / np.max(i_)
+        i_ = ex.equalize_hist(i_.astype(np.uint16), mask=mask, nbins=256)
         i_ *= mask
         images[modality,:,:,:] = i_
     return torch.Tensor(images)
