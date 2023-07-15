@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import skimage.exposure as ex
 import torch
+import torch.nn.functional as F
 from accelerate import Accelerator
 from skimage.measure import label, regionprops
 from torch.utils.data import DataLoader, Dataset
@@ -18,9 +19,9 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_val_big.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_val.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 15
+    args.batch_size = 20
     accelerator = Accelerator()
     device = accelerator.device
 
@@ -81,10 +82,12 @@ class BratsDataVolume(Dataset):
         self,
         df: pd.DataFrame,
         dataset_path: str,
+        image_size: int,
         hist: bool,
     ):
         self.df = df
         self.dataset_path = dataset_path
+        self.image_size = image_size
         self.hist = hist
         self.data_types = ["_flair.nii.gz"]
 
@@ -100,7 +103,7 @@ class BratsDataVolume(Dataset):
             images.append(img)
 
         mask_path = os.path.join(self.dataset_path, id_, id_ + "_seg.nii.gz")
-        mask = np.asarray(nib.load(mask_path).dataobj, dtype=int)
+        mask = np.asarray(nib.load(mask_path).dataobj, dtype=float)
         mask[mask == 1] = 1
         mask[mask == 2] = 1
         mask[mask == 4] = 1
@@ -115,6 +118,12 @@ class BratsDataVolume(Dataset):
         img = img[:,:,15:125].permute(2,0,1)
         mask = mask.squeeze()
         mask = mask[:,:,15:125].permute(2,0,1)
+        img = F.interpolate(img[None,None,:,:,:],size=(img.shape[0],self.image_size,self.image_size),mode='nearest')
+        mask = F.interpolate(mask[None,None,:,:,:],size=(mask.shape[0],self.image_size,self.image_size),mode='nearest')
+        img = img.squeeze()
+        mask = mask.squeeze()
+        mask[mask > 0.5] = 1
+        mask[mask !=1] = 0
         mask = mask.type(torch.bool)
         return img, mask
 
@@ -137,15 +146,15 @@ def hist_norm(images):
         i_ = images[modality, :, :,:]
         mask = np.zeros_like(i_)
         mask[i_ > 0] = 1
-        #i_ = i_ / np.max(i_)
-        i_ = ex.equalize_hist(i_.astype(np.uint16), mask=mask, nbins=256)
+        i_ = i_ / np.max(i_)
+        i_ = ex.equalize_hist(i_.astype(np.float32), mask=mask, nbins=256)
         i_ *= mask
         images[modality,:,:,:] = i_
     return torch.Tensor(images)
 
 def Brats_Volume(args, hist = True):
     df = pd.read_csv(args.path_to_csv)
-    dataset = BratsDataVolume(df, args.dataset_path, hist=hist)
+    dataset = BratsDataVolume(df, args.dataset_path, args.image_size, hist=hist)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, num_workers=4, shuffle=False)
     return dataloader
 

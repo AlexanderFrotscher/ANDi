@@ -150,10 +150,8 @@ class BratsDataset(Dataset):
             img = np.stack([x for x in images])
             img = own_hist(img)
         else:
-            img = torch.stack([torch.from_numpy(x) for x in images], dim=0).unsqueeze(
-                dim=0
-            )
-            img = normalize_volume(img[0].float())
+            img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
+            img = normalize_volume(img.float())
         img = img[:, :, :, slice]
         img = self.transforms(img)
         my_transform = transforms.Resize(128, antialias=True)
@@ -198,7 +196,8 @@ def own_hist(images):
         i_ = images[modality, :, :,:]
         mask = np.zeros_like(i_)
         mask[i_ > 0] = 1
-        i_ = ex.equalize_hist(i_.astype(np.uint16), mask=mask)
+        i_ = i_ / np.max(i_)
+        i_ = ex.equalize_hist(i_.astype(np.float32), mask=mask, nbins=256)
         i_ *= mask
         images[modality,:,:,:] = i_
     return torch.Tensor(images)
@@ -253,9 +252,8 @@ def Brats21(args, preload=False, eval=False, hist=True):
 
             else:
                 img = torch.stack(
-                    [torch.from_numpy(x) for x in images], dim=0
-                ).unsqueeze(dim=0)
-                img = normalize_volume(img[0].float())
+                    [torch.from_numpy(x) for x in images], dim=0)
+                img = normalize_volume(img.float())
 
             mask = preprocess_mask(mask)
             for i in range(img.shape[3]):

@@ -70,6 +70,23 @@ class Diffusion:
             * (x - ((1 - alpha) / (torch.sqrt(1 - alpha_hat))) * predicted_noise)
         )
 
+    def ddpm_mu_t_2(self, x, predicted_noise, t):
+        alpha = self.alpha[t][:, None, None, None]
+        alpha_hat = self.alpha_hat[t][:, None, None, None]
+        beta = self.beta[t][:, None, None, None]
+        alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
+        pred_x0 = (
+            1 / torch.sqrt(alpha_hat) * x
+            - torch.sqrt((1 - alpha_hat) / (alpha_hat)) * predicted_noise
+        )
+        #pred_x0 = pred_x0.clamp(-1, 1)
+        pred_x0 = clamp_to_spatial_quantile(pred_x0,0.99)
+        return (
+            (torch.sqrt(alpha_hat_minus_one) * beta) / (1 - alpha_hat)
+        ) * pred_x0 + (
+            (((1 - alpha_hat_minus_one) * torch.sqrt(alpha)) / (1 - alpha_hat)) * x
+        )
+
     def sample(
         self, model, n, labels, channels, cfg_scale=3
     ):  # cfg scale determines the influence of the conditional model
@@ -90,7 +107,8 @@ class Diffusion:
                     noise = torch.randn_like(x)
                 else:
                     noise = torch.zeros_like(x)
-                x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
+                #x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
+                x = self.ddpm_mu_t_2(x, predicted_noise, t) + torch.sqrt(beta) * noise
         model.train()
         x = (x.clamp(-1, 1) + 1) / 2
         x = (x * 255).type(torch.uint8)
@@ -221,7 +239,7 @@ class Diffusion:
                 x_t = xts[:, i]
                 x_tm1 = xts[:, i - 1]
                 predicted_noise = model(x_t, t, None)
-                mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
+                mu_t = self.ddpm_mu_t_2(x_t, predicted_noise, t)
                 # beta = self.beta[t][:, None, None, None]
                 scale_t = scaling[t][:, None, None, None]
                 z_t = (x_tm1 - mu_t) / torch.sqrt(scale_t)
@@ -248,11 +266,20 @@ class Diffusion:
                     noise = torch.randn_like(x)
                 else:
                     noise = torch.zeros_like(x)
-                x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * (
+                x = self.ddpm_mu_t_2(x, predicted_noise, t) + torch.sqrt(beta) * (
                     noise_scale * noise + (1 - noise_scale) * zs[:, i - 1]
                 )
         model.train()
         return x
+
+
+# dynamic normalisation
+def clamp_to_spatial_quantile(x : torch.Tensor, p : float):
+    b, c, *spatial = x.shape
+    quantile = torch.quantile(torch.abs(x).view(b,c,-1), p, dim = -1, keepdim =True)
+    quantile = torch.max(quantile,torch.ones_like(quantile))
+    quantile_broadcasted, _ = torch.broadcast_tensors(quantile.unsqueeze(-1),x)
+    return torch.min(torch.max(x,-quantile_broadcasted), quantile_broadcasted) / quantile_broadcasted
 
 
 def train(args):

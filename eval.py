@@ -4,6 +4,7 @@ __email__ = "alexander.frotscher@student.uni-tuebingen.de"
 import argparse
 import itertools
 
+from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
@@ -15,13 +16,14 @@ from utils import *
 
 
 def main():
+    plt.ioff()
     torch.manual_seed(73)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/tumor_slices_val_small.csv"
-    #args.path_to_csv = "./data/BraTS20/tumor_slices_small.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/tumor_slices_val.csv"
+    #args.path_to_csv = "./data/BraTS20/tumor_slices_test.csv"
     args.batch_size = 16
     args.image_size = 64
 
@@ -32,7 +34,7 @@ def main():
     ckpt = torch.load(
         "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_ema_ckpt.pt"
     )
-    #ckpt = torch.load("./models/trained_models/160_ema_ckpt.pt")
+    #ckpt = torch.load("./models/trained_models/final_no_flip/80_ema_ckpt.pt")
     model.load_state_dict(ckpt)
     diffusion = Diffusion(noise_steps=1000, img_size=64, device=device)
     dataloader = Brats21(args, eval=True, hist=False)
@@ -41,6 +43,7 @@ def main():
     pbar = tqdm(dataloader)
     # threshold_diff = [x / 100 for x in range(1, 100)]
     threshold_test = [round(x, 3) for x in np.arange(0.5, 2, 0.1)]
+    #threshold_test = [round(x, 3) for x in np.arange(2.3, 3, 0.1)]
     # threshold_test_1 = [round(x, 3) for x in np.arange(1.0, 1.6, 0.1)]
     # threshold_test_2 = [round(-x, 3) for x in np.arange(2.2, 2.8, 0.1)]
     # threshold_test_3 = [round(x, 3) for x in np.arange(3.0, 3.5, 0.1)]
@@ -58,13 +61,16 @@ def main():
     dice_scores_mask = {i: [] for i in threshold_test}
     #dice_scores_mask_3 = {(a,b,c,d,e):[] for (a,b,c,d,e) in my_thresholds}
     my_resize = transforms.Resize(128, antialias=True)
+    #my_resize_2 = transforms.Resize(64, antialias=True)
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
-        label[label > 0] = 1
-        label = label[:, 0, :, :].type(torch.uint8)
+        label[label > 0.5] = 1
+        label = label[:, 0, :, :].type(torch.bool)
         num_steps = 1000
+        #xts, zs = diffusion.dpm_inversion(model, image, timestemp=num_steps,scaling=torch.ones(1000).to(device))
         xts, zs = diffusion.dpm_inversion(model, image, timestemp=num_steps)
-        #my_mean = (torch.mean(zs,dim=1) * np.sqrt(1000))
+        #my_mean = torch.mean(zs,dim=1)
+        #my_mean[image[:,:,:,:] == -1] = 0
         #plot_images(my_mean,mode='L')
         #my_images_one = diffusion.guide_restoration(
         #    model, xts[:, 0:1000], zs[:, 0:1000], cfg_scale=0, noise_scale=0
@@ -80,10 +86,10 @@ def main():
         # dice_scores_diff_2[key].extend([float(x) for x in dice(my_masks, label)])
 
         for key in dice_scores_mask:
-            mask = create_mask_2(zs, key, steps=num_steps)
+            mask = create_mask_2(zs, key, steps=num_steps, images=image)
             mask = my_resize(mask)
-            mask[mask > 0] = 1
-            mask = mask.type(torch.uint8)
+            mask[mask > 0.5] = 1
+            mask = mask.type(torch.bool)
             dice_scores_mask[key].extend([float(x) for x in dice(mask, label)])
         #for key in dice_scores_mask_3:
         #    mask = create_mask_3(zs,key,steps=num_steps)
@@ -112,6 +118,9 @@ def main():
     # df_diff.to_csv("./results/BraTS21/difference_score.csv")
     # df_mask.to_csv("./results/BraTS21/mask_one.csv")
     # df_mask2.to_csv("./results/BraTS21/mask_two.csv")
+
+
+
     """
     my_images = []
     my_images.append(np.array(Image.open('./data/BraTS20/my_test_0_A(2).jpg'))[:,:,0])
@@ -132,6 +141,38 @@ def main():
     """
 
 
+
+    """
+        my_label = my_resize_2(label)
+        my_label[my_label > 0.5] = 1
+        my_points = []
+        zs_dim1 = zs[0,:,0,:,:] * np.sqrt(1000)
+        new_mask = torch.zeros_like(my_label[0])
+        new_mask[image[0,0,:,:] > -1] = 1
+        my_mask = torch.logical_and(new_mask.type(torch.bool),~my_label.type(torch.bool)[0])
+        for j in range(num_steps-1):
+            my_points_1 = zs_dim1[j][my_mask.type(torch.bool)]
+            my_points.append(my_points_1)
+        points = np.stack([x.cpu().numpy() for x in my_points])
+        for j in range(300):
+            my_mean = points[:,j].mean()
+            my_median = np.median(points[:,j])
+            fig, ax = plt.subplots()
+            #ax.plot(np.linspace(0,num_steps,num=num_steps-1,endpoint=False),points[:,j],label='data')
+            q25, q75 = np.percentile(points[:,j], [25, 75])
+            bin_width = 2 * (q75 - q25) * len(points[:,j]) ** (-1/3)
+            bins = round((points[:,j].max() - points[:,j].min()) / bin_width)
+            ax.hist(points[:,j],bins,density=True,label='data')
+            #ax.axhline(my_mean,xmin=0,xmax=num_steps-1,label='mean',color='r')
+            #ax.axhline(my_median,xmin=0,xmax=num_steps-1,label='median',color='y')
+            ax.vlines(my_mean, ymin=0,ymax=0.002, label='mean', color='r')
+            ax.vlines(my_median, ymin=0,ymax=0.002, label='median', color='y')
+            ax.legend()
+            fig.savefig(f'./results/BraTS21/tumorpoints_{j}_patient{i}.png')
+            plt.close(fig)
+        """
+
+
 def show_slices(slices):
     """Function to display row of image slices"""
     fig, axes = plt.subplots(1, len(slices))
@@ -147,15 +188,17 @@ def create_difference(images, predictions, threshold=0.2):
     masks[masks != 0] = 1
     return masks
 
-def create_mask(zs, th, steps):
+def create_mask(zs, th, steps, images):
      my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
      #my_mean = torch.mean(zs, dim=1) * 1000
+     my_mean[images[:,:,:,:] == -1] = 0
      my_mean[:,0] = torch.where(my_mean[:, 0] > th, 1.0, 0.0)
      return my_mean[:,0]
 
-def create_mask_2(zs, th, steps):
+def create_mask_2(zs, th, steps, images):
     my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
     #my_mean = torch.mean(zs, dim=1) * 1000
+    my_mean[images[:,:,:,:] == -1] = 0
     my_mean_1 = my_mean[:, 0]
     my_mean_2 = my_mean[:, 3]
     my_mean = (my_mean_1 + my_mean_2)*0.5
