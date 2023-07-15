@@ -5,13 +5,20 @@ import os
 import numpy as np
 import nibabel as nib
 import pandas as pd
-
+import torch
+from torchvision import  transforms
 
 def preprocess_mask(mask):
     mask_WT = mask.copy()
     mask_WT[mask_WT == 1] = 1
     mask_WT[mask_WT == 2] = 1
     mask_WT[mask_WT == 4] = 1
+    mask_WT = torch.from_numpy(mask_WT)
+    mask_WT = mask_WT[None, :, :]
+    my_transform = transforms.Resize(128, antialias=True)
+    mask_WT = my_transform(mask_WT)
+    mask_WT[mask_WT > 0.5] = 1
+    mask_WT[mask_WT != 1] = 0
     return mask_WT
 
 
