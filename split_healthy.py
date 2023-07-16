@@ -13,12 +13,6 @@ def preprocess_mask(mask):
     mask_WT[mask_WT == 1] = 1
     mask_WT[mask_WT == 2] = 1
     mask_WT[mask_WT == 4] = 1
-    mask_WT = torch.from_numpy(mask_WT)
-    mask_WT = mask_WT[None, :, :]
-    my_transform = transforms.Resize(128, antialias=True)
-    mask_WT = my_transform(mask_WT)
-    mask_WT[mask_WT > 0.5] = 1
-    mask_WT[mask_WT != 1] = 0
     return mask_WT
 
 
@@ -40,7 +34,13 @@ for id in ids:
     for i in range(img.shape[2]):
         num_zeros = np.count_nonzero(img[:, :, i] == 0)
         if num_zeros < 54000:
-            if 1 in mask[:, :, i]:
+            my_mask = torch.from_numpy(mask)
+            my_mask = my_mask[None, :, :, i]
+            my_transform = transforms.Resize(128, antialias=True)
+            my_mask = my_transform(my_mask)
+            my_mask[my_mask > 0.5] = 1
+            my_mask[my_mask != 1] = 0
+            if 1 in my_mask:
                 tumor_ids.append(id)
                 tumor_slices.append(i)
             else:
