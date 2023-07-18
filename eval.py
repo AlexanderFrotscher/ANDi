@@ -22,9 +22,9 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/tumor_slices_val.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/tumor_slices_val.csv"
     #args.path_to_csv = "./data/BraTS20/tumor_slices_test.csv"
-    args.batch_size = 16
+    args.batch_size = 20
     args.image_size = 64
 
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -41,8 +41,8 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    # threshold_diff = [x / 100 for x in range(1, 100)]
-    threshold_test = [round(x, 3) for x in np.arange(0.5, 2, 0.1)]
+    #threshold_diff = [x / 100 for x in range(1, 100)]
+    threshold_test = [round(x, 3) for x in np.arange(1.2, 2, 0.1)]
     #threshold_test = [round(x, 3) for x in np.arange(2.3, 3, 0.1)]
     # threshold_test_1 = [round(x, 3) for x in np.arange(1.0, 1.6, 0.1)]
     # threshold_test_2 = [round(-x, 3) for x in np.arange(2.2, 2.8, 0.1)]
@@ -56,7 +56,7 @@ def main():
     #threshold_test_4 = [round(x, 3) for x in np.arange(1.3, 1.9, 0.1)]
     #my_thresholds = list(itertools.product(threshold_test_1,threshold_test_2,threshold_test_3,threshold_test_3_m,threshold_test_4))
 
-    # dice_scores_diff = {i: [] for i in threshold_diff}
+    #dice_scores_diff = {i: [] for i in threshold_diff}
     # dice_scores_diff_2 = {i: [] for i in threshold_diff}
     dice_scores_mask = {i: [] for i in threshold_test}
     #dice_scores_mask_3 = {(a,b,c,d,e):[] for (a,b,c,d,e) in my_thresholds}
@@ -68,18 +68,21 @@ def main():
         label = label[:, 0, :, :].type(torch.bool)
         num_steps = 1000
         #xts, zs = diffusion.dpm_inversion(model, image, timestemp=num_steps,scaling=torch.ones(1000).to(device))
-        xts, zs = diffusion.dpm_inversion(model, image, timestemp=num_steps)
-        #my_mean = torch.mean(zs,dim=1)
+        #xts, zs = diffusion.dpm_inversion(model, image, timestemp=num_steps)
+        xts, zs = diffusion.dpm_encoder(model,image, timestemp=num_steps)
+        #xts, zs = diffusion.my_inversion(model,image, timestemp=num_steps)
+        #my_mean = torch.mean(zs,dim=1) * np.sqrt(1000)
         #my_mean[image[:,:,:,:] == -1] = 0
-        #plot_images(my_mean,mode='L')
         #my_images_one = diffusion.guide_restoration(
-        #    model, xts[:, 0:1000], zs[:, 0:1000], cfg_scale=0, noise_scale=0
-        # )
-        
+        #    model, xts[:, 0:100], zs[:, 0:100], cfg_scale=0, noise_scale=0.9
+        #)
+        #plot_images(my_mean,mode='L')
 
-        # for key in dice_scores_diff:
+        #for key in dice_scores_diff:
         #    my_masks = create_difference(image, my_images_one, threshold=key)
         #    my_masks = my_resize(my_masks)
+        #    my_masks[my_masks > 0.5] = 1
+        #    my_masks = my_masks.type(torch.bool)
         #    dice_scores_diff[key].extend([float(x) for x in dice(my_masks, label)])
         # my_masks = create_difference(image, my_images_two, threshold=key)
         # my_masks = my_resize(my_masks)
@@ -95,7 +98,7 @@ def main():
         #    mask = create_mask_3(zs,key,steps=num_steps)
         #    mask = my_resize(mask)
         #    dice_scores_mask_3[key].extend([float(x) for x in dice(mask, label)])
-    # for key in dice_scores_diff:
+    #for key in dice_scores_diff:
     #    dice_scores_diff[key] = np.mean(np.asarray(dice_scores_diff[key]))
     #    dice_scores_diff_2[key] = np.mean(np.asarray(dice_scores_diff_2[key]))
     for key in dice_scores_mask:
@@ -110,13 +113,13 @@ def main():
     # df.columns = ['0.3 - 150','0.05 - 1000']
     df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
     #df_mask2 = pd.DataFrame(dice_scores_mask_3, index=[0]).T
-    # df.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/difference_score.csv")
+    # df.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/difference_score.csv")
     df_mask.to_csv(
-        "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/mask_one.csv"
+        "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_one.csv"
     )
-    # df_mask2.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/mask_two.csv")
+    # df_mask2.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_two.csv")
     # df_diff.to_csv("./results/BraTS21/difference_score.csv")
-    # df_mask.to_csv("./results/BraTS21/mask_one.csv")
+    #df_mask.to_csv("./results/BraTS21/mask_one.csv")
     # df_mask2.to_csv("./results/BraTS21/mask_two.csv")
 
 
