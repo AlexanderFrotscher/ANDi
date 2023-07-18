@@ -197,7 +197,7 @@ class Diffusion:
                 x_t = xts[:, i]
                 x_tm1 = xts[:, i - 1]
                 predicted_noise = model(x_t, t, None)
-                mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
+                mu_t = self.ddpm_mu_t_2(x_t, predicted_noise, t)
                 beta = self.beta[t][:, None, None, None]
                 #alpha_hat = self.alpha_hat[t][:, None, None, None]
                 #alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
@@ -419,8 +419,8 @@ def train(args):
             my_model = accelerator.unwrap_model(model)
             my_ema_model = accelerator.unwrap_model(ema_model)
             # labels = torch.arange(args.num_classes).long().to(device)
-            labels = None
-            n = 5
+            #labels = None
+            #n = 5
             accelerator.save(
                 my_model.state_dict(),
                 os.path.join("models", args.run_name, f"{epoch}_ckpt.pt"),
@@ -429,27 +429,27 @@ def train(args):
                 optimizer.state_dict(),
                 os.path.join("models", args.run_name, f"{epoch}_optim.pt"),
             )
-            ema_sampled_images = diffusion.sample(
-                ema_model, n=n, labels=labels, channels=args.channels, cfg_scale=0
-            )
-            save_images(
-                ema_sampled_images,
-                os.path.join("results", args.run_name, f"{epoch}_ema.jpg"),
-                mode="L",
-            )
+            #ema_sampled_images = diffusion.sample(
+            #    ema_model, n=n, labels=labels, channels=args.channels, cfg_scale=0
+            #)
+            #save_images(
+            #    ema_sampled_images,
+            #    os.path.join("results", args.run_name, f"{epoch}_ema.jpg"),
+            #    mode="L",
+            #)
             accelerator.save(
                 my_ema_model.state_dict(),
                 os.path.join("models", args.run_name, f"{epoch}_ema_ckpt.pt"),
             )
-            example_images = wandb.Image(upload_images(ema_sampled_images, mode="L"))
-            wandb.log({"EMA-DDPM": example_images})
+            #example_images = wandb.Image(upload_images(ema_sampled_images, mode="L"))
+            #wandb.log({"EMA-DDPM": example_images})
 
 
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.run_name = "BraTS21"
-    args.epochs = 201
+    args.epochs = 264
     args.batch_size = 20
     args.image_size = 64
     args.channels = 4
@@ -459,13 +459,13 @@ def main():
     )
     # args.dataset_path = './data/BraTS20'
     args.start_lr = 2e-5
-    args.target_lr = 1e-4
+    args.target_lr = 2e-5
     args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_train.csv"
     # args.path_to_csv = './data/survival_info_02.csv'
-    args.train_continue = False
-    args.current_model = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_ckpt.pt"
-    args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_ema_ckpt.pt"
-    args.current_opt = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_optim.pt"
+    args.train_continue = True
+    args.current_model = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_ckpt.pt"
+    args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_ema_ckpt.pt"
+    args.current_opt = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_optim.pt"
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )
