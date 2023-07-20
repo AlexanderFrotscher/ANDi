@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 import skimage.exposure as ex
 import torch
-import torch.nn.functional as F
 import torchvision
 from matplotlib import pyplot as plt
 from PIL import Image
@@ -177,7 +176,7 @@ class BratsDataVolume(Dataset):
         return self.df.shape[0]
 
     def __getitem__(self, idx):
-        id_ = self.df.loc[idx, "Brats20ID"]
+        id_ = self.df.loc[idx, "BraTS21ID"]
         images = []
         for data_type in self.data_types:
             img_path = os.path.join(self.dataset_path, id_, id_ + data_type)
@@ -207,9 +206,11 @@ class BratsDataVolume(Dataset):
             128,
             mask.shape[2]
         )
+        my_transform_1 = transforms.Resize(self.image_size, antialias=True)
+        my_transform_2 = transforms.Resize(128, antialias=True)
         for i in range(img.shape[3]):
-            volume[:,:,:,i] = F.interpolate(img[None, :, :, :, i], mode="bilinear", size=(self.image_size, self.image_size))
-            my_mask[:,:,i] = F.interpolate(mask[None, None, :, :, i], mode="bilinear", size=(128, 128))
+            volume[:,:,:,i] = my_transform_1(img[None, :, :, :, i])
+            my_mask[:,:,i] = my_transform_2(mask[None, None, :, :, i])
         my_mask[my_mask > 0.5] = 1
         my_mask[my_mask !=1] = 0
         my_mask = my_mask.type(torch.bool)
@@ -274,6 +275,7 @@ def dice(pred, target):
     intersection = torch.flatten(pred,1).float() * torch.flatten(target,1).float()
     dice = (2 * intersection.sum(dim=1)) / (pred_sum + target_sum)
     return dice
+
 
 
 def Brats21(args, preload=False, eval=False, hist=True):
