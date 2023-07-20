@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
     args.batch_size = 10
     args.image_size = 64
@@ -60,8 +60,8 @@ def main():
             .type(torch.bool)
         )
         for j in range(image.shape[4]):
-            xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
-            # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
+            # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
+            xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
             # xts, zs = diffusion.my_inversion(model,image[:,:,:,:,j], timestemp=num_steps)
             for k, key in enumerate(dice_scores_mask):
                 mask = create_mask_2(
@@ -78,18 +78,30 @@ def main():
     #df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
     df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_one_3D.csv")
 
+def create_mask(zs, th, steps, images):
+     my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
+     #my_mean = torch.mean(zs, dim=1) * 1000
+     my_mean[images[:,:,:,:] == -1] = 0
+     my_mask = torch.where(my_mean[:, 0] > th, 1.0, 0.0)
+     my_resize = transforms.Resize(128, antialias=True)
+     my_mask = my_resize(my_mask[None, :, :, :])
+     my_mask = my_mask[0]
+     my_mask[my_mask > 0.5] = 1
+     my_mask = my_mask.type(torch.bool)
+     return my_mask
 
 def create_mask_2(zs, th, steps, images):
     my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
-    # my_mean = torch.mean(zs, dim=1) * 1000
-    my_mean[images[:, :, :, :] == -1] = 0
+    #my_mean = torch.mean(zs, dim=1) * 1000
+    my_mean[images[:,:,:,:] == -1] = 0
     my_mean_1 = my_mean[:, 0]
     my_mean_2 = my_mean[:, 3]
-    my_mean = (my_mean_1 + my_mean_2) * 0.5
+    my_mean = (my_mean_1 + my_mean_2)*0.5
     my_mean[my_mean < th] = 0
     my_mean[my_mean != 0] = 1
     my_resize = transforms.Resize(128, antialias=True)
     my_mean = my_resize(my_mean[None, :, :, :])
+    my_mean = my_mean[0]
     my_mean[my_mean > 0.5] = 1
     my_mean = my_mean.type(torch.bool)
     return my_mean
