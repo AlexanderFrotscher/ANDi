@@ -30,7 +30,7 @@ def main():
     device = accelerator.device
     model = UNet_conditional().to(device)
     ckpt = torch.load(
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/160_ema_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/128_ema_ckpt.pt"
     )
     # ckpt = torch.load("./models/trained_models/final_no_flip/80_ema_ckpt.pt")
     # ckpt = torch.load("./models/trained_models/over_trained/248_ema_ckpt.pt")
@@ -60,8 +60,8 @@ def main():
             .type(torch.bool)
         )
         for j in range(image.shape[4]):
-            # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
-            xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
+            xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
+            # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
             # xts, zs = diffusion.my_inversion(model,image[:,:,:,:,j], timestemp=num_steps)
             for k, key in enumerate(dice_scores_mask):
                 mask = create_mask_2(
