@@ -11,12 +11,12 @@ import os
 import nibabel as nib
 import numpy as np
 import pandas as pd
-import scipy
 import skimage.exposure as ex
 import torch
 import torchvision
 from matplotlib import pyplot as plt
 from PIL import Image
+from scipy.ndimage import median_filter
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
@@ -159,6 +159,7 @@ class BratsDataset(Dataset):
         mask = my_transform(mask)
         return img, mask
 
+
 class BratsDataVolume(Dataset):
     def __init__(
         self,
@@ -171,7 +172,7 @@ class BratsDataVolume(Dataset):
         self.dataset_path = dataset_path
         self.image_size = image_size
         self.hist = hist
-        self.data_types =  ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
+        self.data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
 
     def __len__(self):
         return self.df.shape[0]
@@ -196,30 +197,24 @@ class BratsDataVolume(Dataset):
         else:
             img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
             img = normalize_volume(img.float())
-        
+
         start_range = 15
         end_range = 131
         volume = torch.zeros(
-            img.shape[0],
-            self.image_size,
-            self.image_size,
-            end_range - start_range
+            img.shape[0], self.image_size, self.image_size, end_range - start_range
         )
-        my_mask = torch.zeros(
-            128,
-            128,
-            end_range - start_range
-        )
+        my_mask = torch.zeros(128, 128, end_range - start_range)
         my_transform_1 = transforms.Resize(self.image_size, antialias=True)
         my_transform_2 = transforms.Resize(128, antialias=True)
-        for i in range(start_range,end_range):
-            volume[:,:,:,i-start_range] = my_transform_1(img[None, :, :, :, i])
-            my_mask[:,:,i-start_range] = my_transform_2(mask[None, None, :, :, i])
+        for i in range(start_range, end_range):
+            volume[:, :, :, i - start_range] = my_transform_1(img[None, :, :, :, i])
+            my_mask[:, :, i - start_range] = my_transform_2(mask[None, None, :, :, i])
         my_mask[my_mask > 0.5] = 1
-        my_mask[my_mask !=1] = 0
+        my_mask[my_mask != 1] = 0
         my_mask = my_mask.type(torch.bool)
 
         return volume, my_mask
+
 
 class preload_dataset(Dataset):
     def __init__(self, my_images: list, my_transforms: transforms):
@@ -255,13 +250,13 @@ def normalize_volume(images):
 
 def hist_norm(images):
     for modality in range(images.shape[0]):
-        i_ = images[modality, :, :,:]
+        i_ = images[modality, :, :, :]
         mask = np.zeros_like(i_)
         mask[i_ > 0] = 1
         i_ = i_ / np.max(i_)
         i_ = ex.equalize_hist(i_.astype(np.float32), mask=mask, nbins=256)
         i_ *= mask
-        images[modality,:,:,:] = i_
+        images[modality, :, :, :] = i_
     return torch.Tensor(images)
 
 
@@ -274,16 +269,19 @@ def preprocess_mask(mask):
 
 
 def dice(pred, target):
-    pred_sum = torch.flatten(pred,1).sum(dim=1)
-    target_sum = torch.flatten(target,1).sum(dim=1)
-    intersection = torch.flatten(pred,1).float() * torch.flatten(target,1).float()
+    pred_sum = torch.flatten(pred, 1).sum(dim=1)
+    target_sum = torch.flatten(target, 1).sum(dim=1)
+    intersection = torch.flatten(pred, 1).float() * torch.flatten(target, 1).float()
     dice = (2 * intersection.sum(dim=1)) / (pred_sum + target_sum)
     return dice
 
-def median_filter(volume, kernelsize=5):
+
+def median_filter_3D(volume, kernelsize=5):
     volume = volume.cpu().numpy()
-    volume = scipy.ndimage.filters.median_filter(volume, (kernelsize, kernelsize, kernelsize))
+    for i in range(volume.shape[0]):
+        volume[i] = median_filter(volume[i], size=(kernelsize, kernelsize, kernelsize))
     return torch.Tensor(volume)
+
 
 def Brats21(args, preload=False, eval=False, hist=True):
     if eval == True:
@@ -319,8 +317,7 @@ def Brats21(args, preload=False, eval=False, hist=True):
                 img = hist_norm(img)
 
             else:
-                img = torch.stack(
-                    [torch.from_numpy(x) for x in images], dim=0)
+                img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
                 img = normalize_volume(img.float())
 
             mask = preprocess_mask(mask)
@@ -345,11 +342,14 @@ def Brats21(args, preload=False, eval=False, hist=True):
     return dataloader
 
 
-def Brats_Volume(args, hist = True):
+def Brats_Volume(args, hist=True):
     df = pd.read_csv(args.path_to_csv)
     dataset = BratsDataVolume(df, args.dataset_path, args.image_size, hist=hist)
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, num_workers=4, shuffle=False)
+    dataloader = DataLoader(
+        dataset, batch_size=args.batch_size, num_workers=4, shuffle=False
+    )
     return dataloader
+
 
 def make_dicts(run_name):
     os.makedirs("models", exist_ok=True)

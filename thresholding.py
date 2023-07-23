@@ -4,11 +4,11 @@ import os
 import nibabel as nib
 import numpy as np
 import pandas as pd
-import scipy
 import skimage.exposure as ex
 import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
+from scipy.ndimage import median_filter
 from skimage.measure import label, regionprops
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
@@ -19,10 +19,14 @@ def main():
     torch.manual_seed(73)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
-    #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_test.csv"
-    #args.path_to_csv = "./data/BraTS20/survival_info_01.csv"
+    args.dataset_path = (
+        "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
+    )
+    # args.dataset_path = "./data/BraTS20/BraTS20_Training"
+    args.path_to_csv = (
+        "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
+    )
+    # args.path_to_csv = "./data/BraTS20/survival_info_01.csv"
     args.batch_size = 20
     args.image_size = 128
     accelerator = Accelerator()
@@ -37,41 +41,38 @@ def main():
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
         for key in dice_scores_mask:
-            my_mask = torch.where(image > key,image,0.0)
-            my_mask = median_filter(my_mask)
-            my_mask[my_mask !=0] = 1
-            my_mask = my_mask[:,0].type(torch.bool).to(device)
+            my_mask = torch.where(image > key, 1.0, 0.0)
+            my_mask = my_mask[:, 0].type(torch.bool).to(device)
             dice_scores_mask[key].extend([float(x) for x in dice(my_mask, label)])
     for key in dice_scores_mask:
         dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
 
     # use best threshold with connected_components
     my_scores = []
-    my_thresh = max(dice_scores_mask,key=dice_scores_mask.get)
+    my_thresh = max(dice_scores_mask, key=dice_scores_mask.get)
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
-        my_mask = torch.where(image > key,image,0.0)
-        my_mask = median_filter(my_mask)
-        my_mask[my_mask !=0] = 1
-        my_mask = connected_components_3d(my_mask[:,0])
+        my_mask = torch.where(image > key, image, 0.0)
+        my_mask = median_filter_3D(my_mask[:, 0])
+        my_mask[my_mask != 0] = 1
+        my_mask = connected_components_3d(my_mask)
         my_mask = my_mask.type(torch.bool).to(device)
         my_scores.extend([float(x) for x in dice(my_mask, label)])
     my_dice = np.asarray(my_scores).mean()
 
-    dice_scores_mask[f'{my_thresh}_cc'] = my_dice
+    dice_scores_mask[f"{my_thresh}_cc"] = my_dice
     df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
-    #df_mask.to_csv("./results/Threshold_results/dice_scores.csv")
-    df_mask.to_csv(
-        "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/dice_threshold.csv"
-    )
+    # df_mask.to_csv("./results/Threshold_results/dice_scores.csv")
+    df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/dice_threshold.csv")
 
 
 def dice(pred, target):
-    pred_sum = torch.flatten(pred,1).sum(dim=1)
-    target_sum = torch.flatten(target,1).sum(dim=1)
-    intersection = torch.flatten(pred,1).float() * torch.flatten(target,1).float()
+    pred_sum = torch.flatten(pred, 1).sum(dim=1)
+    target_sum = torch.flatten(target, 1).sum(dim=1)
+    intersection = torch.flatten(pred, 1).float() * torch.flatten(target, 1).float()
     dice = (2 * intersection.sum(dim=1)) / (pred_sum + target_sum)
     return dice
+
 
 def connected_components_3d(volume):
     # shape [b, d, h, w], treat every sample in batch independently
@@ -81,15 +82,18 @@ def connected_components_3d(volume):
         cc_volume = label(volume[i], connectivity=3)
         props = regionprops(cc_volume)
         for prop in props:
-            if prop['filled_area'] <= 20:
-                volume[i, cc_volume == prop['label']] = 0
+            if prop["filled_area"] <= 20:
+                volume[i, cc_volume == prop["label"]] = 0
     return torch.Tensor(volume)
 
 
-def median_filter(volume, kernelsize=5):
+def median_filter_3D(volume, kernelsize=5):
     volume = volume.cpu().numpy()
-    volume = scipy.ndimage.filters.median_filter(volume, (kernelsize, kernelsize, kernelsize))
+    pbar = tqdm(range(len(volume)), desc="Median filtering")
+    for i in pbar:
+        volume[i] = median_filter(volume[i], size=(kernelsize, kernelsize, kernelsize))
     return torch.Tensor(volume)
+
 
 class BratsDataVolume(Dataset):
     def __init__(
@@ -117,10 +121,10 @@ class BratsDataVolume(Dataset):
             images.append(img)
 
         mask_path = os.path.join(self.dataset_path, id_, id_ + "_seg.nii.gz")
-        #mask_path = os.path.join(self.dataset_path, id_, "anomaly_segmentation.nii.gz")
+        # mask_path = os.path.join(self.dataset_path, id_, "anomaly_segmentation.nii.gz")
         mask = np.asarray(nib.load(mask_path).dataobj, dtype=float)
         mask[mask >= 0.9] = 1
-        mask[mask !=1] = 0
+        mask[mask != 1] = 0
         mask = torch.from_numpy(mask)
         if self.hist == True:
             img = np.stack([x for x in images])
@@ -131,23 +135,16 @@ class BratsDataVolume(Dataset):
         start_range = 15
         end_range = 131
         volume = torch.zeros(
-            img.shape[0],
-            self.image_size,
-            self.image_size,
-            end_range - start_range
+            img.shape[0], self.image_size, self.image_size, end_range - start_range
         )
-        my_mask = torch.zeros(
-            128,
-            128,
-            end_range - start_range
-        )
+        my_mask = torch.zeros(128, 128, end_range - start_range)
         my_transform_1 = transforms.Resize(self.image_size, antialias=True)
         my_transform_2 = transforms.Resize(128, antialias=True)
-        for i in range(start_range,end_range):
-            volume[:,:,:,i-start_range] = my_transform_1(img[None, :, :, :, i])
-            my_mask[:,:,i-start_range] = my_transform_2(mask[None, None, :, :, i])
+        for i in range(start_range, end_range):
+            volume[:, :, :, i - start_range] = my_transform_1(img[None, :, :, :, i])
+            my_mask[:, :, i - start_range] = my_transform_2(mask[None, None, :, :, i])
         my_mask[my_mask > 0.5] = 1
-        my_mask[my_mask !=1] = 0
+        my_mask[my_mask != 1] = 0
         my_mask = my_mask.type(torch.bool)
         return volume, my_mask
 
@@ -167,20 +164,24 @@ def normalize_volume(images):
 
 def hist_norm(images):
     for modality in range(images.shape[0]):
-        i_ = images[modality, :, :,:]
+        i_ = images[modality, :, :, :]
         mask = np.zeros_like(i_)
         mask[i_ > 0] = 1
         i_ = i_ / np.max(i_)
         i_ = ex.equalize_hist(i_.astype(np.float32), mask=mask, nbins=256)
         i_ *= mask
-        images[modality,:,:,:] = i_
+        images[modality, :, :, :] = i_
     return torch.Tensor(images)
 
-def Brats_Volume(args, hist = True):
+
+def Brats_Volume(args, hist=True):
     df = pd.read_csv(args.path_to_csv)
     dataset = BratsDataVolume(df, args.dataset_path, args.image_size, hist=hist)
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, num_workers=4, shuffle=False)
+    dataloader = DataLoader(
+        dataset, batch_size=args.batch_size, num_workers=4, shuffle=False
+    )
     return dataloader
+
 
 if __name__ == "__main__":
     main()
