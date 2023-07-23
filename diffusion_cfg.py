@@ -252,6 +252,7 @@ class Diffusion:
                 zs[:, i - 1] = z_t
         return xts, zs
     
+
     def my_inversion(self, model, images, timestemp = None):
         if timestemp is None:
             timestemp = self.noise_steps
@@ -271,7 +272,63 @@ class Diffusion:
             zs = torch.zeros(
                 (
                     num_images,
+                    timestemp-1,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            t = (torch.ones(num_images) * timestemp - 1).long().to(self.device)
+            x_t, noise = self.noise_images(images, t)
+            xts[:, timestemp - 1] = x_t
+            for i in tqdm(reversed(range(2, timestemp)), position=0):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
+                x_t, noise = self.noise_images(images, t)
+                alpha = self.alpha[t][:, None, None, None]
+                alpha_hat = self.alpha_hat[t][:, None, None, None]
+                beta = self.beta[t][:, None, None, None]
+                alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
+                # this follows the mu calculation of ddpm_mu_t_2 given as eq 7 in DDPM paper
+                w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
+                wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
+                mean = w0 * images + wt * x_t
+                xts[:,i-1] = mean
+            xts[:, 0] = images
+
+            # generate the latents
+            for i in tqdm(reversed(range(1, timestemp)), position=0):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
+                x_t = xts[:, i]
+                x_tm1 = xts[:, i - 1]
+                predicted_noise = model(x_t, t, None)
+                mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
+                beta = self.beta[t][:, None, None, None]
+                z_t = (x_tm1 - mu_t) / torch.sqrt(beta)
+                zs[:, i - 1] = z_t
+        return xts, zs
+
+    def my_inversion_pred(self, model, images, timestemp = None):
+        if timestemp is None:
+            timestemp = self.noise_steps
+        num_images = images.shape[0]
+        model.eval()
+        with torch.no_grad():
+            # First, sample from the forward process
+            xts = torch.zeros(
+                (
+                    num_images,
                     timestemp,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            zs = torch.zeros(
+                (
+                    num_images,
+                    timestemp - 1,
                     images.shape[1],
                     images.shape[2],
                     images.shape[3],
@@ -284,12 +341,12 @@ class Diffusion:
             xts[:, 0] = images
 
             # generate the latents
-            for i in tqdm(reversed(range(0, timestemp)), position=0):
+            for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
                 x_t = xts[:, i]
                 predicted_noise = model(x_t, t, None)
-                mu_t = self.ddpm_mu_t_2(x_t, predicted_noise, t)
+                mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                 beta = self.beta[t][:, None, None, None]
                 alpha = self.alpha[t][:, None, None, None]
                 alpha_hat = self.alpha_hat[t][:, None, None, None]
@@ -300,7 +357,7 @@ class Diffusion:
                 mean = w0 * images + wt * x_t
                 # what was supposed to be predicted and what is predicted
                 z_t = (mean - mu_t) / torch.sqrt(beta)
-                zs[:, i] = z_t
+                zs[:, i-1] = z_t
         return xts, zs
 
     def guide_restoration(self, model, xts, zs, cfg_scale=1.5, noise_scale=0.5):
@@ -344,7 +401,7 @@ def train(args):
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
-    dataloader = Brats21(args, preload=True)
+    dataloader = Brats21(args, preload=True, hist=True)
     steps_per_epoch = int(np.ceil(len(dataloader.dataset) / args.batch_size))
     number_of_steps = steps_per_epoch * args.epochs
     model = UNet_conditional(
@@ -442,8 +499,8 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "BraTS21"
-    args.epochs = 264
+    args.run_name = "BraTS21_hist"
+    args.epochs = 161
     args.batch_size = 20
     args.image_size = 64
     args.channels = 4
@@ -453,10 +510,10 @@ def main():
     )
     # args.dataset_path = './data/BraTS20'
     args.start_lr = 2e-5
-    args.target_lr = 2e-5
+    args.target_lr = 1e-4
     args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_train.csv"
     # args.path_to_csv = './data/survival_info_02.csv'
-    args.train_continue = True
+    args.train_continue = False
     args.current_model = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_ckpt.pt"
     args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_ema_ckpt.pt"
     args.current_opt = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_optim.pt"

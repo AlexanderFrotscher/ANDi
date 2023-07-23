@@ -292,7 +292,7 @@ def Brats21(args, preload=False, eval=False, hist=True):
         my_transforms = transforms.Compose(
             [
                 transforms.Resize(args.image_size, antialias=True),
-                # transforms.RandomHorizontalFlip(0.4),
+                transforms.RandomHorizontalFlip(0.4),
             ]
         )
     if preload == True:
