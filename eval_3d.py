@@ -69,8 +69,12 @@ def main():
                 )
                 my_masks[:, k, :, :, j] = mask
         for j, key in enumerate(dice_scores_mask):
+            my_mask = my_masks[:, j, :, :, :]
+            my_mask = median_filter(my_mask)
+            my_mask[my_mask !=0] = 1
+            my_mask = my_mask.type(torch.bool)
             dice_scores_mask[key].extend(
-                [float(x) for x in dice(my_masks[:, j, :, :, :], label)]
+                [float(x) for x in dice(my_mask, label)]
             )
     for key in dice_scores_mask:
         dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
@@ -82,12 +86,10 @@ def create_mask(zs, th, steps, images):
      my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
      #my_mean = torch.mean(zs, dim=1) * 1000
      my_mean[images[:,:,:,:] == -1] = 0
-     my_mask = torch.where(my_mean[:, 0] > th, 1.0, 0.0)
+     my_mask = torch.where(my_mean[:, 0] > th, my_mask, 0.0)
      my_resize = transforms.Resize(128, antialias=True)
      my_mask = my_resize(my_mask[None, :, :, :])
      my_mask = my_mask[0]
-     my_mask[my_mask > 0.5] = 1
-     my_mask = my_mask.type(torch.bool)
      return my_mask
 
 def create_mask_2(zs, th, steps, images):
@@ -97,13 +99,10 @@ def create_mask_2(zs, th, steps, images):
     my_mean_1 = my_mean[:, 0]
     my_mean_2 = my_mean[:, 3]
     my_mean = (my_mean_1 + my_mean_2)*0.5
-    my_mean[my_mean < th] = 0
-    my_mean[my_mean != 0] = 1
+    my_mean = torch.where(my_mean > th, my_mean, 0.0)
     my_resize = transforms.Resize(128, antialias=True)
     my_mean = my_resize(my_mean[None, :, :, :])
     my_mean = my_mean[0]
-    my_mean[my_mean > 0.5] = 1
-    my_mean = my_mean.type(torch.bool)
     return my_mean
 
 

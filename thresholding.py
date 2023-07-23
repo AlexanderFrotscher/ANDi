@@ -4,6 +4,7 @@ import os
 import nibabel as nib
 import numpy as np
 import pandas as pd
+import scipy
 import skimage.exposure as ex
 import torch
 import torch.nn.functional as F
@@ -20,7 +21,7 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_val_test.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data/scans_test.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_01.csv"
     args.batch_size = 20
     args.image_size = 128
@@ -36,7 +37,9 @@ def main():
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
         for key in dice_scores_mask:
-            my_mask = torch.where(image > key,1.0,0.0)
+            my_mask = torch.where(image > key,image,0.0)
+            my_mask = median_filter(my_mask)
+            my_mask[my_mask !=0] = 1
             my_mask = my_mask[:,0].type(torch.bool).to(device)
             dice_scores_mask[key].extend([float(x) for x in dice(my_mask, label)])
     for key in dice_scores_mask:
@@ -47,7 +50,9 @@ def main():
     my_thresh = max(dice_scores_mask,key=dice_scores_mask.get)
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
-        my_mask = torch.where(image > my_thresh,1.0,0.0)
+        my_mask = torch.where(image > key,image,0.0)
+        my_mask = median_filter(my_mask)
+        my_mask[my_mask !=0] = 1
         my_mask = connected_components_3d(my_mask[:,0])
         my_mask = my_mask.type(torch.bool).to(device)
         my_scores.extend([float(x) for x in dice(my_mask, label)])
@@ -81,6 +86,11 @@ def connected_components_3d(volume):
     return torch.Tensor(volume)
 
 
+def median_filter(volume, kernelsize=5):
+    volume = volume.cpu().numpy()
+    volume = scipy.ndimage.filters.median_filter(volume, (kernelsize, kernelsize, kernelsize))
+    return torch.Tensor(volume)
+
 class BratsDataVolume(Dataset):
     def __init__(
         self,
@@ -99,7 +109,7 @@ class BratsDataVolume(Dataset):
         return self.df.shape[0]
 
     def __getitem__(self, idx):
-        id_ = self.df.loc[idx, "Brats21ID"]
+        id_ = self.df.loc[idx, "BraTS21ID"]
         images = []
         for data_type in self.data_types:
             img_path = os.path.join(self.dataset_path, id_, id_ + data_type)

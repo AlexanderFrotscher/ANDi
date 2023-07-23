@@ -11,6 +11,7 @@ import os
 import nibabel as nib
 import numpy as np
 import pandas as pd
+import scipy
 import skimage.exposure as ex
 import torch
 import torchvision
@@ -235,7 +236,7 @@ class preload_dataset(Dataset):
 
 
 """
-This function is from https://github.com/AntanasKascenas/DenoisingAE
+This function is adapted from https://github.com/AntanasKascenas/DenoisingAE
 """
 
 
@@ -279,7 +280,10 @@ def dice(pred, target):
     dice = (2 * intersection.sum(dim=1)) / (pred_sum + target_sum)
     return dice
 
-
+def median_filter(volume, kernelsize=5):
+    volume = volume.cpu().numpy()
+    volume = scipy.ndimage.filters.median_filter(volume, (kernelsize, kernelsize, kernelsize))
+    return torch.Tensor(volume)
 
 def Brats21(args, preload=False, eval=False, hist=True):
     if eval == True:
