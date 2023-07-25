@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
 from scipy.ndimage import median_filter
+from scipy.signal import medfilt2d
 from skimage.measure import label, regionprops
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
@@ -24,7 +25,7 @@ def main():
     )
     # args.dataset_path = "./data/BraTS20/BraTS20_Training"
     args.path_to_csv = (
-        "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
+        "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_test.csv"
     )
     # args.path_to_csv = "./data/BraTS20/survival_info_01.csv"
     args.batch_size = 20
@@ -53,7 +54,7 @@ def main():
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
         my_mask = torch.where(image > key, image, 0.0)
-        my_mask = median_filter_3D(my_mask[:, 0])
+        my_mask = median_filter_2D(my_mask[:, 0])
         my_mask[my_mask != 0] = 1
         my_mask = connected_components_3d(my_mask)
         my_mask = my_mask.type(torch.bool).to(device)
@@ -62,7 +63,7 @@ def main():
 
     dice_scores_mask[f"{my_thresh}_cc"] = my_dice
     df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
-    # df_mask.to_csv("./results/Threshold_results/dice_scores.csv")
+    #df_mask.to_csv("./results/Threshold_results/dice_scores.csv")
     df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/dice_threshold.csv")
 
 
@@ -92,6 +93,15 @@ def median_filter_3D(volume, kernelsize=5):
     pbar = tqdm(range(len(volume)), desc="Median filtering")
     for i in pbar:
         volume[i] = median_filter(volume[i], size=(kernelsize, kernelsize, kernelsize))
+    return torch.Tensor(volume)
+
+
+def median_filter_2D(volume, kernelsize=5):
+    volume = volume.cpu().numpy()
+    pbar = tqdm(range(len(volume)), desc="Median filtering")
+    for i in pbar:
+        for j in range(volume.shape[3]):
+            volume[i,:,:,j] = medfilt2d(volume[i,:,:,j],kernel_size=kernelsize)
     return torch.Tensor(volume)
 
 
@@ -132,8 +142,8 @@ class BratsDataVolume(Dataset):
         else:
             img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
             img = normalize_volume(img.float())
-        start_range = 15
-        end_range = 131
+        start_range = 0
+        end_range = 155
         volume = torch.zeros(
             img.shape[0], self.image_size, self.image_size, end_range - start_range
         )
