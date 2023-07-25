@@ -11,6 +11,7 @@ from accelerate import Accelerator
 from scipy.ndimage import median_filter
 from scipy.signal import medfilt2d
 from skimage.measure import label, regionprops
+from torch.nn.modules.utils import _pair, _quadruple
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 from tqdm import tqdm
@@ -23,11 +24,9 @@ def main():
     args.dataset_path = (
         "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     )
-    # args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = (
-        "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_test.csv"
-    )
-    # args.path_to_csv = "./data/BraTS20/survival_info_01.csv"
+    #args.dataset_path = "./data/BraTS20/BraTS20_Training"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_test.csv"
+    #args.path_to_csv = "./data/BraTS20/survival_info_01.csv"
     args.batch_size = 20
     args.image_size = 128
     accelerator = Accelerator()
@@ -54,7 +53,7 @@ def main():
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
         my_mask = torch.where(image > key, image, 0.0)
-        my_mask = median_filter_2D(my_mask[:, 0])
+        my_mask = median_filter_tensor(my_mask)
         my_mask[my_mask != 0] = 1
         my_mask = connected_components_3d(my_mask)
         my_mask = my_mask.type(torch.bool).to(device)
@@ -101,8 +100,25 @@ def median_filter_2D(volume, kernelsize=5):
     pbar = tqdm(range(len(volume)), desc="Median filtering")
     for i in pbar:
         for j in range(volume.shape[3]):
-            volume[i,:,:,j] = medfilt2d(volume[i,:,:,j],kernel_size=kernelsize)
+            volume[i, :, :, j] = medfilt2d(volume[i, :, :, j], kernel_size=kernelsize)
     return torch.Tensor(volume)
+
+def median_filter_tensor(volume, kernelsize=5):
+    for j in range(volume.shape[4]):
+        volume[:, :, :, :, j] = median_pool(volume[:, :, :, :, j], kernel_size=kernelsize, padding=2)
+    return torch.Tensor(volume[:,0])
+
+
+def median_pool(x, kernel_size=3, stride=1, padding=0):
+    k = _pair(kernel_size)
+    stride = _pair(stride)
+    padding = _quadruple(padding)
+
+    x = F.pad(x, padding, mode="reflect")
+    x = x.unfold(2, k[0], stride[0]).unfold(3, k[1], stride[1])
+    x = x.contiguous().view(x.size()[:4] + (-1,)).median(dim=-1)[0]
+
+    return x
 
 
 class BratsDataVolume(Dataset):
