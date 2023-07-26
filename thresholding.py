@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
 from skimage.measure import label, regionprops
+from torch.nn.modules.utils import _pair, _quadruple
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 from tqdm import tqdm
@@ -49,7 +50,8 @@ def main():
     my_thresh = max(dice_scores_mask, key=dice_scores_mask.get)
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
-        my_mask = torch.where(image > my_thresh, 1.0, 0.0)
+        my_image = median_filter_tensor(image)
+        my_mask = torch.where(my_image > my_thresh, 1.0, 0.0)
         my_mask = connected_components_3d(my_mask[:, 0])
         my_mask = my_mask.type(torch.bool).to(device)
         my_scores.extend([float(x) for x in dice(my_mask, label)])
@@ -159,6 +161,24 @@ def hist_norm(images):
         i_ *= mask
         images[modality, :, :, :] = i_
     return torch.Tensor(images)
+
+
+def median_filter_tensor(volume, kernelsize=5):
+    for j in range(volume.shape[4]):
+        volume[:, :, :, :, j] = median_pool(volume[:, :, :, :, j], kernel_size=kernelsize, padding=2)
+    return torch.Tensor(volume[:,0])
+
+
+def median_pool(x, kernel_size=3, stride=1, padding=0):
+    k = _pair(kernel_size)
+    stride = _pair(stride)
+    padding = _quadruple(padding)
+
+    x = F.pad(x, padding, mode="reflect")
+    x = x.unfold(2, k[0], stride[0]).unfold(3, k[1], stride[1])
+    x = x.contiguous().view(x.size()[:4] + (-1,)).median(dim=-1)[0]
+
+    return x
 
 
 def Brats_Volume(args, hist=True):
