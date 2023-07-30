@@ -360,6 +360,68 @@ class Diffusion:
                 zs[:, i-1] = z_t
         return xts, zs
 
+
+    def skip_inversion(self, model, images, timestemp=None, skip=5):
+        if timestemp is None:
+            timestemp = self.noise_steps
+        num_images = images.shape[0]
+        model.eval()
+        with torch.no_grad():
+            # First, sample from the forward process
+            xts = torch.zeros(
+                (
+                    num_images,
+                    timestemp,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            zs = torch.zeros(
+                (
+                    num_images,
+                    int((timestemp/skip)),
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            for i in tqdm(reversed(range(1, timestemp)), position=0):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                x_t, noise = self.noise_images(images, t)
+                xts[:, i] = x_t
+            xts[:, 0] = images
+            # generate the latents
+            correct_chain = xts[:,-1]
+            predcited_chain = xts[:,-1]
+            t = (torch.ones(num_images) * timestemp-1).long().to(self.device)
+            current_scale = self.beta[t][:, None, None, None]
+            for i in tqdm(reversed(range(0, timestemp)), position=0):
+                if i != 0:
+                    t = (torch.ones(num_images) * i).long().to(self.device)
+                    t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
+                    predicted_noise = model(predcited_chain, t, None)
+                    mu_t = self.ddpm_mu_t(predcited_chain, predicted_noise, t)
+                    beta = self.beta[t][:, None, None, None]
+                    alpha = self.alpha[t][:, None, None, None]
+                    alpha_hat = self.alpha_hat[t][:, None, None, None]
+                    alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
+                    # this follows the mu calculation of ddpm_mu_t_2 given as eq 7 in DDPM paper
+                    w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
+                    wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
+                    mean = w0 * images + wt * correct_chain
+                    chain_noise = torch.rand_like(images)
+                    correct_chain = mean + torch.sqrt(beta) * chain_noise
+                    predcited_chain = mu_t + torch.sqrt(beta) * chain_noise
+                    current_scale = current_scale + beta
+                if i % skip == 0:
+                    z_t = (correct_chain - predcited_chain) / torch.sqrt(current_scale)
+                    zs[:, int(i/skip)] = z_t
+                    correct_chain = xts[:, i-1]
+                    predcited_chain = xts[:, i-1]
+                    current_scale = self.beta[t_m1][:, None, None, None]
+        return xts, zs
+
     def guide_restoration(self, model, xts, zs, cfg_scale=1.5, noise_scale=0.5):
         logging.info(f"Starting healing process....")
         model.eval()

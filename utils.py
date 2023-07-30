@@ -16,7 +16,6 @@ import torch
 import torchvision
 from matplotlib import pyplot as plt
 from PIL import Image
-from scipy.ndimage import median_filter
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
@@ -275,12 +274,6 @@ def dice(pred, target):
     dice = (2 * intersection.sum(dim=1)) / (pred_sum + target_sum)
     return dice
 
-
-def median_filter_3D(volume, kernelsize=5):
-    volume = volume.cpu().numpy()
-    for i in range(volume.shape[0]):
-        volume[i] = median_filter(volume[i], size=(kernelsize, kernelsize, kernelsize))
-    return torch.Tensor(volume)
 
 
 def Brats21(args, preload=False, eval=False, hist=True):
