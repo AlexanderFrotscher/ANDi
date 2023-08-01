@@ -74,10 +74,10 @@ def main():
             .type(torch.bool)
         )
         for j in range(image.shape[4]):
-            # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
+            xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
             # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
             # xts, zs = diffusion.my_inversion(model,image[:,:,:,:,j], timestemp=num_steps)
-            xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
+            #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
 
             for k, key in enumerate(dice_scores_mask):
                 mask = create_mask(
@@ -106,7 +106,37 @@ def main():
     df_mask_2 = pd.DataFrame(dice_scores_mask_2, index=[0]).T
     df_mask_2.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_two_3D.csv")
 
+
 def create_mask(zs, th, steps, images):
+     my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
+     my_mean[images[:,:,:,:] == -1] = 0
+     my_resize = transforms.Resize(128, antialias=True)
+     my_mask = my_resize(my_mean)
+     my_mask = median_filter_2D(my_mask)
+     my_mask = my_mask.to(device='cuda')
+     my_mask[my_mask < th] = 0
+     my_mask[my_mask != 0] = 1
+     my_mask = my_mask[:,0]
+     my_mask = my_mask.type(torch.bool)
+     return my_mask
+
+
+def create_mask_2(zs, th, steps, images):
+    my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
+    my_mean[images[:,:,:,:] == -1] = 0
+    my_resize = transforms.Resize(128, antialias=True)
+    my_mean = my_resize(my_mean)
+    my_mean = median_filter_2D(my_mean)
+    my_mean = my_mean.to(device='cuda')
+    my_mean_1 = my_mean[:, 0]
+    my_mean_2 = my_mean[:, 3]
+    my_mean = (my_mean_1 + my_mean_2)*0.5
+    my_mean[my_mean < th] = 0
+    my_mean[my_mean != 0] = 1
+    my_mean = my_mean.type(torch.bool)
+    return my_mean
+
+def create_mask_n(zs, th, steps, images):
      my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
      my_mean[images[:,:,:,:] == -1] = 0
      my_mean[my_mean < th] = 0
@@ -119,7 +149,7 @@ def create_mask(zs, th, steps, images):
      my_mask = my_mask.type(torch.bool)
      return my_mask
 
-def create_mask_2(zs, th, steps, images):
+def create_mask_2_n(zs, th, steps, images):
     my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
     my_mean[images[:,:,:,:] == -1] = 0
     my_mean_1 = my_mean[:, 0]
@@ -134,6 +164,13 @@ def create_mask_2(zs, th, steps, images):
     my_mean = my_mean.type(torch.bool)
     return my_mean
 
+def median_filter_2D(volume, kernelsize=5):
+    volume = volume.cpu().numpy()
+    pbar = tqdm(range(len(volume)), desc="Median filtering")
+    for i in pbar:
+        for j in range(volume.shape[1]):
+            volume[i, j, :, :] = medfilt2d(volume[i, j, :, :], kernel_size=kernelsize)
+    return torch.Tensor(volume)
 
 def show_slices(slices):
     """Function to display row of image slices"""

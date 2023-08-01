@@ -16,6 +16,8 @@ import torch
 import torchvision
 from matplotlib import pyplot as plt
 from PIL import Image
+from scipy.ndimage import median_filter
+from scipy.signal import medfilt2d
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
@@ -197,8 +199,8 @@ class BratsDataVolume(Dataset):
             img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
             img = normalize_volume(img.float())
 
-        start_range = 15
-        end_range = 131
+        start_range = 0
+        end_range = 155
         volume = torch.zeros(
             img.shape[0], self.image_size, self.image_size, end_range - start_range
         )
@@ -273,7 +275,6 @@ def dice(pred, target):
     intersection = torch.flatten(pred, 1).float() * torch.flatten(target, 1).float()
     dice = (2 * intersection.sum(dim=1)) / (pred_sum + target_sum)
     return dice
-
 
 
 def Brats21(args, preload=False, eval=False, hist=True):
