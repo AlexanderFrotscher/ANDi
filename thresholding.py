@@ -8,6 +8,8 @@ import skimage.exposure as ex
 import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
+from scipy.ndimage import median_filter
+from scipy.signal import medfilt2d
 from skimage.measure import label, regionprops
 from torch.nn.modules.utils import _pair, _quadruple
 from torch.utils.data import DataLoader, Dataset
@@ -50,9 +52,11 @@ def main():
     my_thresh = max(dice_scores_mask, key=dice_scores_mask.get)
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
-        my_image = median_filter_tensor(image)
-        my_mask = torch.where(my_image > my_thresh, 1.0, 0.0)
-        my_mask = connected_components_3d(my_mask[:, 0])
+        my_mask = torch.where(image > my_thresh, image, 0.0)
+        my_mask = median_filter_2D(my_mask[:,0])
+        my_mask[my_mask > 0] = 1
+        my_mask = my_mask.type(torch.bool)
+        my_mask = connected_components_3d(my_mask)
         my_mask = my_mask.type(torch.bool).to(device)
         my_scores.extend([float(x) for x in dice(my_mask, label)])
     my_dice = np.asarray(my_scores).mean()
@@ -162,6 +166,22 @@ def hist_norm(images):
         images[modality, :, :, :] = i_
     return torch.Tensor(images)
 
+
+def median_filter_3D(volume, kernelsize=5):
+    volume = volume.cpu().numpy()
+    pbar = tqdm(range(len(volume)), desc="Median filtering")
+    for i in pbar:
+        volume[i] = median_filter(volume[i], size=(kernelsize, kernelsize, kernelsize))
+    return torch.Tensor(volume)
+
+
+def median_filter_2D(volume, kernelsize=5):
+    volume = volume.cpu().numpy()
+    pbar = tqdm(range(len(volume)), desc="Median filtering")
+    for i in pbar:
+        for j in range(volume.shape[3]):
+            volume[i, :, :, j] = medfilt2d(volume[i, :, :, j], kernel_size=kernelsize)
+    return torch.Tensor(volume)
 
 def median_filter_tensor(volume, kernelsize=5):
     for j in range(volume.shape[4]):
