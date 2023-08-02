@@ -14,8 +14,10 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
+import random
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from torch import optim
+from torch.nn.modules.utils import _pair, _quadruple
 from tqdm import tqdm
 
 import wandb
@@ -56,6 +58,23 @@ class Diffusion:
             :, None, None, None
         ]
         noise = torch.randn_like(x)
+        return sqrt_alpha_hat * x + sqrt_one_minus_alpha_hat * noise, noise
+    
+    def noise_images_coarse(self,x,t):
+        sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None, None]
+        sqrt_one_minus_alpha_hat = torch.sqrt(1 - self.alpha_hat[t])[
+            :, None, None, None
+        ]
+        noise = torch.normal(mean=torch.zeros(x.shape[0], x.shape[1], 16, 16), std=0.2).to(x.device)
+        #padding = _quadruple(6)
+        #noise = F.pad(noise, padding, mode="circular")
+        #my_resize = transforms.Resize(64, antialias=True)
+        #noise = my_resize(noise)
+        noise = F.interpolate(noise,size=(64,64),mode='bilinear', antialias=False, align_corners=True)
+        # Roll to randomly translate the generated noise.
+        roll_x = random.choice(range(64))
+        roll_y = random.choice(range(64))
+        noise = torch.roll(noise, shifts=[roll_x, roll_y], dims=[2, 3])
         return sqrt_alpha_hat * x + sqrt_one_minus_alpha_hat * noise, noise
 
     def sample_timesteps(self, n):
@@ -463,7 +482,7 @@ def train(args):
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
-    dataloader = Brats21(args, preload=True, hist=True)
+    dataloader = Brats21(args, preload=True)
     steps_per_epoch = int(np.ceil(len(dataloader.dataset) / args.batch_size))
     number_of_steps = steps_per_epoch * args.epochs
     model = UNet_conditional(
@@ -514,7 +533,8 @@ def train(args):
             t = diffusion.sample_timesteps(images.shape[0]).to(
                 device
             )  # every picture gets one timestep in one epoch
-            x_t, noise = diffusion.noise_images(images, t)
+            #x_t, noise = diffusion.noise_images(images, t)
+            x_t, noise = diffusion.noise_images_coarse(images, t)
             # if np.random.random() < 0.1:
             #    labels = None
             # predicted_noise = model(x_t, t, labels)
@@ -532,8 +552,8 @@ def train(args):
             my_model = accelerator.unwrap_model(model)
             my_ema_model = accelerator.unwrap_model(ema_model)
             # labels = torch.arange(args.num_classes).long().to(device)
-            #labels = None
-            #n = 5
+            labels = None
+            n = 5
             accelerator.save(
                 my_model.state_dict(),
                 os.path.join("models", args.run_name, f"{epoch}_ckpt.pt"),
@@ -542,26 +562,26 @@ def train(args):
                 optimizer.state_dict(),
                 os.path.join("models", args.run_name, f"{epoch}_optim.pt"),
             )
-            #ema_sampled_images = diffusion.sample(
-            #    ema_model, n=n, labels=labels, channels=args.channels, cfg_scale=0
-            #)
-            #save_images(
-            #    ema_sampled_images,
-            #    os.path.join("results", args.run_name, f"{epoch}_ema.jpg"),
-            #    mode="L",
-            #)
+            ema_sampled_images = diffusion.sample(
+                ema_model, n=n, labels=labels, channels=args.channels, cfg_scale=0
+            )
+            save_images(
+                ema_sampled_images,
+                os.path.join("results", args.run_name, f"{epoch}_ema.jpg"),
+                mode="L",
+            )
             accelerator.save(
                 my_ema_model.state_dict(),
                 os.path.join("models", args.run_name, f"{epoch}_ema_ckpt.pt"),
             )
-            #example_images = wandb.Image(upload_images(ema_sampled_images, mode="L"))
-            #wandb.log({"EMA-DDPM": example_images})
+            example_images = wandb.Image(upload_images(ema_sampled_images, mode="L"))
+            wandb.log({"EMA-DDPM": example_images})
 
 
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "BraTS21_hist"
+    args.run_name = "BraTS21_coarse"
     args.epochs = 161
     args.batch_size = 20
     args.image_size = 64

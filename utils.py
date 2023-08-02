@@ -20,6 +20,7 @@ from scipy.ndimage import median_filter
 from scipy.signal import medfilt2d
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
+from torch.nn import functional as F
 
 
 def plot_images(images, mode="RGB"):
@@ -277,7 +278,7 @@ def dice(pred, target):
     return dice
 
 
-def Brats21(args, preload=False, eval=False, hist=True):
+def Brats21(args, preload=False, eval=False, hist=False):
     if eval == True:
         my_transforms = transforms.Compose(
             [
@@ -288,7 +289,7 @@ def Brats21(args, preload=False, eval=False, hist=True):
         my_transforms = transforms.Compose(
             [
                 transforms.Resize(args.image_size, antialias=True),
-                transforms.RandomHorizontalFlip(0.4),
+                #transforms.RandomHorizontalFlip(0.4),
             ]
         )
     if preload == True:
