@@ -7,6 +7,7 @@ https://github.com/dome272/Diffusion-Models-pytorch
 """
 
 import os
+import random
 
 import nibabel as nib
 import numpy as np
@@ -18,9 +19,10 @@ from matplotlib import pyplot as plt
 from PIL import Image
 from scipy.ndimage import median_filter
 from scipy.signal import medfilt2d
+from torch.nn import functional as F
+from torch.nn.modules.utils import _pair, _quadruple
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
-from torch.nn import functional as F
 
 
 def plot_images(images, mode="RGB"):
@@ -278,6 +280,28 @@ def dice(pred, target):
     return dice
 
 
+def coarse_noise(n, channels, device, noise_size=16, noise_std=0.2, image_size=64):
+    noise = torch.normal(
+        mean=torch.zeros(n, channels, noise_size, noise_size), std=noise_std
+    ).to(device)
+    # padding = _quadruple(6)
+    # noise = F.pad(noise, padding, mode="circular")
+    # my_resize = transforms.Resize(64, antialias=True)
+    # noise = my_resize(noise)
+    noise = F.interpolate(
+        noise,
+        size=(image_size, image_size),
+        mode="bilinear",
+        antialias=False,
+        align_corners=True,
+    )
+    # Roll to randomly translate the generated noise.
+    roll_x = random.choice(range(image_size))
+    roll_y = random.choice(range(image_size))
+    noise = torch.roll(noise, shifts=[roll_x, roll_y], dims=[2, 3])
+    return noise
+
+
 def Brats21(args, preload=False, eval=False, hist=False):
     if eval == True:
         my_transforms = transforms.Compose(
@@ -289,7 +313,7 @@ def Brats21(args, preload=False, eval=False, hist=False):
         my_transforms = transforms.Compose(
             [
                 transforms.Resize(args.image_size, antialias=True),
-                #transforms.RandomHorizontalFlip(0.4),
+                # transforms.RandomHorizontalFlip(0.4),
             ]
         )
     if preload == True:

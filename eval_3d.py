@@ -40,7 +40,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(-x, 3) for x in np.arange(4, 7, 0.1)]
+    threshold_test = [round(x, 3) for x in np.arange(0.5, 7, 0.1)]
 
     dice_scores_mask = {i: [] for i in threshold_test}
     dice_scores_mask_2 = {i: [] for i in threshold_test}
@@ -74,10 +74,11 @@ def main():
             .type(torch.bool)
         )
         for j in range(image.shape[4]):
-            xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
+            # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
             # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
-            # xts, zs = diffusion.my_inversion(model,image[:,:,:,:,j], timestemp=num_steps)
+            # xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
             #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
+            xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
 
             for k, key in enumerate(dice_scores_mask):
                 mask = create_mask(

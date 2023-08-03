@@ -14,10 +14,8 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-import random
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from torch import optim
-from torch.nn.modules.utils import _pair, _quadruple
 from tqdm import tqdm
 
 import wandb
@@ -52,29 +50,15 @@ class Diffusion:
         betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
         return torch.clip(betas, 0.0001, 0.9999)
 
-    def noise_images(self, x, t):
+    def noise_images(self, x, t, coarse=False):
         sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None, None]
         sqrt_one_minus_alpha_hat = torch.sqrt(1 - self.alpha_hat[t])[
             :, None, None, None
         ]
-        noise = torch.randn_like(x)
-        return sqrt_alpha_hat * x + sqrt_one_minus_alpha_hat * noise, noise
-    
-    def noise_images_coarse(self,x,t):
-        sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None, None]
-        sqrt_one_minus_alpha_hat = torch.sqrt(1 - self.alpha_hat[t])[
-            :, None, None, None
-        ]
-        noise = torch.normal(mean=torch.zeros(x.shape[0], x.shape[1], 16, 16), std=0.2).to(x.device)
-        #padding = _quadruple(6)
-        #noise = F.pad(noise, padding, mode="circular")
-        #my_resize = transforms.Resize(64, antialias=True)
-        #noise = my_resize(noise)
-        noise = F.interpolate(noise,size=(64,64),mode='bilinear', antialias=False, align_corners=True)
-        # Roll to randomly translate the generated noise.
-        roll_x = random.choice(range(64))
-        roll_y = random.choice(range(64))
-        noise = torch.roll(noise, shifts=[roll_x, roll_y], dims=[2, 3])
+        if coarse == True:
+            noise = coarse_noise(x.shape[0], x.shape[1], x.device)
+        else:
+            noise = torch.randn_like(x)
         return sqrt_alpha_hat * x + sqrt_one_minus_alpha_hat * noise, noise
 
     def sample_timesteps(self, n):
@@ -98,8 +82,8 @@ class Diffusion:
             1 / torch.sqrt(alpha_hat) * x
             - torch.sqrt((1 - alpha_hat) / (alpha_hat)) * predicted_noise
         )
-        #pred_x0 = pred_x0.clamp(-1, 1)
-        pred_x0 = clamp_to_spatial_quantile(pred_x0,0.99)
+        pred_x0 = pred_x0.clamp(-1, 1)
+        # pred_x0 = clamp_to_spatial_quantile(pred_x0,0.99)
         return (
             (torch.sqrt(alpha_hat_minus_one) * beta) / (1 - alpha_hat)
         ) * pred_x0 + (
@@ -107,12 +91,17 @@ class Diffusion:
         )
 
     def sample(
-        self, model, n, labels, channels, cfg_scale=3
+        self, model, n, labels, channels, cfg_scale=3, coarse=False
     ):  # cfg scale determines the influence of the conditional model
         logging.info(f"Sampling {n} new images....")
         model.eval()
         with torch.no_grad():
-            x = torch.randn((n, channels, self.img_size, self.img_size)).to(self.device)
+            if coarse == True:
+                x = coarse_noise(n, channels, self.device)
+            else:
+                x = torch.randn((n, channels, self.img_size, self.img_size)).to(
+                    self.device
+                )
             for i in tqdm(reversed(range(1, self.noise_steps)), position=0):
                 t = (torch.ones(n) * i).long().to(self.device)
                 predicted_noise = model(x, t, labels)
@@ -123,44 +112,14 @@ class Diffusion:
                     )
                 beta = self.beta[t][:, None, None, None]
                 if i > 1:
-                    noise = torch.randn_like(x)
+                    if coarse == True:
+                        noise = torch.zeros_like(x)
+                    else:
+                        noise = torch.randn_like(x)
                 else:
                     noise = torch.zeros_like(x)
-                #x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
-                x = self.ddpm_mu_t_2(x, predicted_noise, t) + torch.sqrt(beta) * noise
-        model.train()
-        x = (x.clamp(-1, 1) + 1) / 2
-        x = (x * 255).type(torch.uint8)
-        return x
-
-    def ddim_sample(
-        self, model, n, labels, channels, cfg_scale=3
-    ):  # not working at all
-        logging.info(f"Sampling {n} new images....")
-        model.eval()
-        with torch.no_grad():
-            x = torch.randn((n, channels, self.img_size, self.img_size)).to(self.device)
-            for i in tqdm(
-                reversed(
-                    np.linspace(1, self.noise_steps, 250, endpoint=False).astype(int)
-                ),
-                position=0,
-            ):
-                t = (torch.ones(n) * i).long().to(self.device)
-                t_m1 = (torch.ones(n) * (i - 1)).long().to(self.device)
-                predicted_noise = model(x, t, labels)
-                if cfg_scale > 0:
-                    uncond_predicted_noise = model(x, t, None)
-                    predicted_noise = torch.lerp(
-                        uncond_predicted_noise, predicted_noise, cfg_scale
-                    )
-                # the notation in the ddim paper is different -> alpha_hat is just alpha there
-                alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
-                alpha_hat = self.alpha_hat[t][:, None, None, None]
-                x = torch.sqrt(alpha_hat_minus_one) * (
-                    (x - torch.sqrt(1 - alpha_hat_minus_one) * predicted_noise)
-                    / torch.sqrt(alpha_hat)
-                ) + (torch.sqrt(1 - alpha_hat_minus_one) * predicted_noise)
+                x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
+                # x = self.ddpm_mu_t_2(x, predicted_noise, t) + torch.sqrt(beta) * noise
         model.train()
         x = (x.clamp(-1, 1) + 1) / 2
         x = (x * 255).type(torch.uint8)
@@ -204,23 +163,27 @@ class Diffusion:
                 # this follows the mu calculation of ddpm_mu_t_2 given as eq 7 in DDPM paper
                 w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
                 wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
-                mean = w0 * images + wt * xts[:, i+1]
-                # normal implementation does not work for our purpose. Using the variance instead of std does way better 
-                var = beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat) #this is option 2
-                xts[:, i] = mean + var * torch.rand_like(images) # option one is just var = beta
+                mean = w0 * images + wt * xts[:, i + 1]
+                # normal implementation does not work for our purpose. Using the variance instead of std does way better
+                var = (
+                    beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
+                )  # this is option 2
+                xts[:, i] = mean + var * torch.rand_like(
+                    images
+                )  # option one is just var = beta
             xts[:, 0] = images
             # generate the latents
             for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                #t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
+                # t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
                 x_t = xts[:, i]
                 x_tm1 = xts[:, i - 1]
                 predicted_noise = model(x_t, t, None)
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                 beta = self.beta[t][:, None, None, None]
-                #alpha_hat = self.alpha_hat[t][:, None, None, None]
-                #alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
-                #var = beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
+                # alpha_hat = self.alpha_hat[t][:, None, None, None]
+                # alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
+                # var = beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
                 z_t = (x_tm1 - mu_t) / torch.sqrt(beta)
                 zs[:, i - 1] = z_t
         return xts, zs
@@ -265,70 +228,13 @@ class Diffusion:
                 x_tm1 = xts[:, i - 1]
                 predicted_noise = model(x_t, t, None)
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
-                #beta = self.beta[t][:, None, None, None]
+                # beta = self.beta[t][:, None, None, None]
                 scale_t = scaling[t][:, None, None, None]
                 z_t = (x_tm1 - mu_t) / torch.sqrt(scale_t)
                 zs[:, i - 1] = z_t
         return xts, zs
-    
 
-    def my_inversion(self, model, images, timestemp = None):
-        if timestemp is None:
-            timestemp = self.noise_steps
-        num_images = images.shape[0]
-        model.eval()
-        with torch.no_grad():
-            # First, sample from the forward process
-            xts = torch.zeros(
-                (
-                    num_images,
-                    timestemp,
-                    images.shape[1],
-                    images.shape[2],
-                    images.shape[3],
-                )
-            ).to(self.device)
-            zs = torch.zeros(
-                (
-                    num_images,
-                    timestemp-1,
-                    images.shape[1],
-                    images.shape[2],
-                    images.shape[3],
-                )
-            ).to(self.device)
-            t = (torch.ones(num_images) * timestemp - 1).long().to(self.device)
-            x_t, noise = self.noise_images(images, t)
-            xts[:, timestemp - 1] = x_t
-            for i in tqdm(reversed(range(2, timestemp)), position=0):
-                t = (torch.ones(num_images) * i).long().to(self.device)
-                t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
-                x_t, noise = self.noise_images(images, t)
-                alpha = self.alpha[t][:, None, None, None]
-                alpha_hat = self.alpha_hat[t][:, None, None, None]
-                beta = self.beta[t][:, None, None, None]
-                alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
-                # this follows the mu calculation of ddpm_mu_t_2 given as eq 7 in DDPM paper
-                w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
-                wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
-                mean = w0 * images + wt * x_t
-                xts[:,i-1] = mean
-            xts[:, 0] = images
-
-            # generate the latents
-            for i in tqdm(reversed(range(1, timestemp)), position=0):
-                t = (torch.ones(num_images) * i).long().to(self.device)
-                t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
-                x_t = xts[:, i]
-                x_tm1 = xts[:, i - 1]
-                predicted_noise = model(x_t, t, None)
-                mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
-                beta = self.beta[t][:, None, None, None]
-                z_t = (x_tm1 - mu_t) / torch.sqrt(beta)
-                zs[:, i - 1] = z_t
-        return xts, zs
-
-    def my_inversion_pred(self, model, images, timestemp = None):
+    def my_inversion_pred(self, model, images, timestemp=None):
         if timestemp is None:
             timestemp = self.noise_steps
         num_images = images.shape[0]
@@ -376,9 +282,8 @@ class Diffusion:
                 mean = w0 * images + wt * x_t
                 # what was supposed to be predicted and what is predicted
                 z_t = (mean - mu_t) / torch.sqrt(beta)
-                zs[:, i-1] = z_t
+                zs[:, i - 1] = z_t
         return xts, zs
-
 
     def skip_inversion(self, model, images, timestemp=None, skip=5):
         if timestemp is None:
@@ -399,7 +304,7 @@ class Diffusion:
             zs = torch.zeros(
                 (
                     num_images,
-                    int((timestemp/skip)),
+                    int((timestemp / skip)),
                     images.shape[1],
                     images.shape[2],
                     images.shape[3],
@@ -411,35 +316,143 @@ class Diffusion:
                 xts[:, i] = x_t
             xts[:, 0] = images
             # generate the latents
-            correct_chain = xts[:,-1]
-            predcited_chain = xts[:,-1]
-            t = (torch.ones(num_images) * timestemp-1).long().to(self.device)
+            correct_chain = xts[:, -1]
+            predcited_chain = xts[:, -1]
+            t = (torch.ones(num_images) * timestemp - 1).long().to(self.device)
             current_scale = self.beta[t][:, None, None, None]
-            for i in tqdm(reversed(range(0, timestemp)), position=0):
-                if i != 0:
-                    t = (torch.ones(num_images) * i).long().to(self.device)
-                    t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
-                    predicted_noise = model(predcited_chain, t, None)
-                    mu_t = self.ddpm_mu_t(predcited_chain, predicted_noise, t)
-                    beta = self.beta[t][:, None, None, None]
-                    alpha = self.alpha[t][:, None, None, None]
-                    alpha_hat = self.alpha_hat[t][:, None, None, None]
-                    alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
-                    # this follows the mu calculation of ddpm_mu_t_2 given as eq 7 in DDPM paper
-                    w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
-                    wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
-                    mean = w0 * images + wt * correct_chain
-                    chain_noise = torch.rand_like(images)
-                    correct_chain = mean + torch.sqrt(beta) * chain_noise
-                    predcited_chain = mu_t + torch.sqrt(beta) * chain_noise
-                    current_scale = current_scale + beta
-                if i % skip == 0:
-                    z_t = (correct_chain - predcited_chain) / torch.sqrt(current_scale)
-                    zs[:, int(i/skip)] = z_t
-                    correct_chain = xts[:, i-1]
-                    predcited_chain = xts[:, i-1]
-                    current_scale = self.beta[t_m1][:, None, None, None]
+            for i in tqdm(reversed(range(1, timestemp)), position=0):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
+                predicted_noise = model(predcited_chain, t, None)
+                mu_t = self.ddpm_mu_t(predcited_chain, predicted_noise, t)
+                beta = self.beta[t][:, None, None, None]
+                alpha = self.alpha[t][:, None, None, None]
+                alpha_hat = self.alpha_hat[t][:, None, None, None]
+                alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
+                # this follows the mu calculation of ddpm_mu_t_2 given as eq 7 in DDPM paper
+                w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
+                wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
+                mean = w0 * images + wt * correct_chain
+                correct_chain = mean
+                predcited_chain = mu_t
+                current_scale = current_scale + beta
+                if i % skip == 0 or i == 1:
+                    if i != 1:
+                        z_t = (correct_chain - predcited_chain) / torch.sqrt(
+                            current_scale
+                        )
+                        zs[:, int(i / skip)] = z_t
+                        predcited_chain = xts[:, i - 1]
+                        correct_chain = xts[:, i - 1]
+                        current_scale = self.beta[t_m1][:, None, None, None]
+                    else:
+                        z_t = (xts[:, 0] - predcited_chain) / torch.sqrt(current_scale)
+                        zs[:, 0] = z_t
         return xts, zs
+
+    def skip_inversion_ind(self, model, images, timestemp=None, skip=5):
+        if timestemp is None:
+            timestemp = self.noise_steps
+        num_images = images.shape[0]
+        model.eval()
+        with torch.no_grad():
+            # First, sample from the forward process
+            xts = torch.zeros(
+                (
+                    num_images,
+                    timestemp,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            zs = torch.zeros(
+                (
+                    num_images,
+                    int(((timestemp) / skip)),
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            for i in tqdm(reversed(range(1, timestemp)), position=0):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                x_t, noise = self.noise_images(images, t)
+                xts[:, i] = x_t
+            xts[:, 0] = images
+            # generate the latents
+            predcited_chain = xts[:, -1]
+            t = (torch.ones(num_images) * timestemp - 1).long().to(self.device)
+            current_scale = self.beta[t][:, None, None, None]
+            for i in tqdm(reversed(range(1, timestemp)), position=0):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                predicted_noise = model(predcited_chain, t, None)
+                mu_t = self.ddpm_mu_t(predcited_chain, predicted_noise, t)
+                beta = self.beta[t][:, None, None, None]
+                predcited_chain = mu_t
+                current_scale = current_scale + beta
+                if i % skip == 0 or i == 1:
+                    z_t = (xts[:, i - 1] - predcited_chain) / torch.sqrt(current_scale)
+                    if i != 1:
+                        zs[:, int(i / skip)] = z_t
+                        predcited_chain = xts[:, i - 1]
+                        t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
+                        current_scale = self.beta[t_m1][:, None, None, None]
+                    else:
+                        zs[:, 0] = z_t
+        return xts, zs
+
+    def skip_inversion_dep(self, model, images, timestemp=None, skip=5):
+        if timestemp is None:
+            timestemp = self.noise_steps
+        num_images = images.shape[0]
+        model.eval()
+        with torch.no_grad():
+            # First, sample from the forward process
+            zs = torch.zeros(
+                (
+                    num_images,
+                    int((timestemp / skip)),
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+
+            t = (torch.ones(num_images) * timestemp - 1).long().to(self.device)
+            x_t, noise = self.noise_images(images, t)
+            # generate the latents
+            correct_chain = x_t
+            predcited_chain = x_t
+            current_scale = self.beta[t][:, None, None, None]
+            for i in tqdm(reversed(range(1, timestemp)), position=0):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
+                predicted_noise = model(predcited_chain, t, None)
+                mu_t = self.ddpm_mu_t(predcited_chain, predicted_noise, t)
+                beta = self.beta[t][:, None, None, None]
+                alpha = self.alpha[t][:, None, None, None]
+                alpha_hat = self.alpha_hat[t][:, None, None, None]
+                alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
+                # this follows the mu calculation of ddpm_mu_t_2 given as eq 7 in DDPM paper
+                w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
+                wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
+                mean = w0 * images + wt * correct_chain
+                correct_chain = mean
+                predcited_chain = mu_t
+                current_scale = current_scale + beta
+                if i % skip == 0 or i == 1:
+                    if i != 1:
+                        z_t = (correct_chain - predcited_chain) / torch.sqrt(
+                            current_scale
+                        )
+                        zs[:, int(i / skip)] = z_t
+                        predcited_chain = correct_chain
+                        current_scale = self.beta[t_m1][:, None, None, None]
+                    else:
+                        z_t = (images - predcited_chain) / torch.sqrt(current_scale)
+                        zs[:, 0] = z_t
+        return zs
 
     def guide_restoration(self, model, xts, zs, cfg_scale=1.5, noise_scale=0.5):
         logging.info(f"Starting healing process....")
@@ -461,7 +474,7 @@ class Diffusion:
                     noise = torch.randn_like(x)
                 else:
                     noise = torch.zeros_like(x)
-                x = self.ddpm_mu_t_2(x, predicted_noise, t) + torch.sqrt(beta) * (
+                x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * (
                     noise_scale * noise + (1 - noise_scale) * zs[:, i - 1]
                 )
         model.train()
@@ -469,12 +482,15 @@ class Diffusion:
 
 
 # dynamic normalisation
-def clamp_to_spatial_quantile(x : torch.Tensor, p : float):
+def clamp_to_spatial_quantile(x: torch.Tensor, p: float):
     b, c, *spatial = x.shape
-    quantile = torch.quantile(torch.abs(x).view(b,c,-1), p, dim = -1, keepdim =True)
-    quantile = torch.max(quantile,torch.ones_like(quantile))
-    quantile_broadcasted, _ = torch.broadcast_tensors(quantile.unsqueeze(-1),x)
-    return torch.min(torch.max(x,-quantile_broadcasted), quantile_broadcasted) / quantile_broadcasted
+    quantile = torch.quantile(torch.abs(x).view(b, c, -1), p, dim=-1, keepdim=True)
+    quantile = torch.max(quantile, torch.ones_like(quantile))
+    quantile_broadcasted, _ = torch.broadcast_tensors(quantile.unsqueeze(-1), x)
+    return (
+        torch.min(torch.max(x, -quantile_broadcasted), quantile_broadcasted)
+        / quantile_broadcasted
+    )
 
 
 def train(args):
@@ -533,7 +549,7 @@ def train(args):
             t = diffusion.sample_timesteps(images.shape[0]).to(
                 device
             )  # every picture gets one timestep in one epoch
-            #x_t, noise = diffusion.noise_images(images, t)
+            # x_t, noise = diffusion.noise_images(images, t)
             x_t, noise = diffusion.noise_images_coarse(images, t)
             # if np.random.random() < 0.1:
             #    labels = None
@@ -596,9 +612,15 @@ def main():
     args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_train.csv"
     # args.path_to_csv = './data/survival_info_02.csv'
     args.train_continue = False
-    args.current_model = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_ckpt.pt"
-    args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_ema_ckpt.pt"
-    args.current_opt = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_optim.pt"
+    args.current_model = (
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_ckpt.pt"
+    )
+    args.current_ema = (
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_ema_ckpt.pt"
+    )
+    args.current_opt = (
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_optim.pt"
+    )
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )
