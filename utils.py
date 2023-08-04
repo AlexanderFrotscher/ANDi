@@ -361,7 +361,7 @@ def Brats21(args, preload=False, eval=False, hist=False):
     return dataloader
 
 
-def Brats_Volume(args, hist=True):
+def Brats_Volume(args, hist=False):
     df = pd.read_csv(args.path_to_csv)
     dataset = BratsDataVolume(df, args.dataset_path, args.image_size, hist=hist)
     dataloader = DataLoader(
