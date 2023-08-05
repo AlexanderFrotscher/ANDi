@@ -15,25 +15,24 @@ from utils import *
 
 
 def main():
-    plt.ioff()
     torch.manual_seed(73)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_try.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 10
+    args.batch_size = 1
     args.image_size = 64
 
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
     model = UNet_conditional().to(device)
-    ckpt = torch.load(
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/128_ema_ckpt.pt"
-    )
-    #ckpt = torch.load("./models/trained_models/final_no_flip/160_ema_ckpt.pt")
+    #ckpt = torch.load(
+    #    "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/128_ema_ckpt.pt"
+    #)
+    ckpt = torch.load("./models/trained_models/final_no_flip/160_ema_ckpt.pt")
     # ckpt = torch.load("./models/trained_models/over_trained/248_ema_ckpt.pt")
     model.load_state_dict(ckpt)
     diffusion = Diffusion(noise_steps=1000, img_size=64, device=device)
@@ -47,12 +46,13 @@ def main():
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
         num_steps = 1000
+        skip = 1
         my_pred = torch.zeros_like(image)
         my_volume = (
             torch.zeros(
                 (
                     image.shape[0],
-                    num_steps-1,
+                    int((num_steps-1)/skip),
                     image.shape[1],
                     image.shape[2],
                     image.shape[3],
@@ -78,28 +78,29 @@ def main():
         for j in range(image.shape[4]):
             # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
             # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
-            #xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
-            xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
+            xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
+            #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
             #xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
             my_volume[:,:,:,:,:,j] = zs
         for b in range(image.shape[0]):
-            my_mask = torch.zeros_like(image[b,0,:,:,:])
-            my_mask[image[b,0,:,:,:] != -1] = 1
-            my_mask = my_mask.type(torch.bool)
+            #my_mask = torch.zeros_like(image[b,0,:,:,:])
+            #my_mask[image[b,0,:,:,:] != -1] = 1
+            #my_mask = my_mask.type(torch.bool)
             for c in range(image.shape[1]):
                 my_zs = my_volume[b,:,c,:,:,:]
                 num_points = my_zs.shape[0]
-                masked_values = my_mask.unsqueeze(0).repeat(num_points,1,1,1).type(torch.bool)
-                my_values = my_zs[masked_values]
-                my_shape = my_values.shape[0] / num_points
-                my_values = torch.reshape(my_values,(num_points,int(my_shape))).T
-                #my_values = torch.flatten(my_zs,start_dim=1).T
+                #masked_values = my_mask.unsqueeze(0).repeat(num_points,1,1,1).type(torch.bool)
+                #my_values = my_zs[masked_values]
+                #my_shape = my_values.shape[0] / num_points
+                #my_values = torch.reshape(my_values,(num_points,int(my_shape))).T
+                my_values = torch.flatten(my_zs,start_dim=1).T
                 my_values = my_values.cpu().numpy()
                 clf = GaussianMixture(n_components=2, covariance_type="diag")
                 clf.fit(my_values)
                 densities = clf.score_samples(my_values)
-                my_pred[b,c,:,:,:][~my_mask] = float('inf')
-                my_pred[b,c,:,:,:][my_mask] = torch.Tensor(densities).to(device)
+                #my_pred[b,c,:,:,:][~my_mask] = float('inf')
+                #my_pred[b,c,:,:,:][my_mask] = torch.Tensor(densities).to(device)
+                my_pred[b,c,:,:,:] = torch.reshape(torch.Tensor(densities).to(device),(64,64,155))
                 for k, percentile in enumerate(my_percentiles):
                     my_cut = np.percentile(densities, percentile)
                     tmp_volume[b,k,c,:,:,:] = torch.where(my_pred[b,c,:,:,:] < my_cut, 1.0, 0.0)
