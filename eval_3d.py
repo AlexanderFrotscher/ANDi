@@ -42,24 +42,10 @@ def main():
     threshold_test = [round(x, 3) for x in np.arange(0.5, 7, 0.1)]
 
     dice_scores_mask = {i: [] for i in threshold_test}
-    dice_scores_mask_2 = {i: [] for i in threshold_test}
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
         num_steps = 1000
         my_masks = (
-            torch.zeros(
-                (
-                    image.shape[0],
-                    len(threshold_test),
-                    128,
-                    128,
-                    image.shape[4],
-                )
-            )
-            .to(device)
-            .type(torch.bool)
-        )
-        my_masks_2 = (
             torch.zeros(
                 (
                     image.shape[0],
@@ -78,34 +64,24 @@ def main():
             # xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
             #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
             #xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
-            zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=50)
+            zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=100)
 
             for k, key in enumerate(dice_scores_mask):
                 mask = create_mask(
                     zs, key, steps=num_steps, images=image[:, :, :, :, j]
                 )
-                mask_2 = create_mask_2(
-                    zs, key, steps=num_steps, images=image[:, :, :, :, j]
-                )
+                
                 my_masks[:, k, :, :, j] = mask
-                my_masks_2[:, k, :, :, j] = mask_2
         for j, key in enumerate(dice_scores_mask):
             my_mask = my_masks[:, j, :, :, :]
             dice_scores_mask[key].extend(
                 [float(x) for x in dice(my_mask, label)]
             )
-            my_mask_2 = my_masks_2[:, j, :, :, :]
-            dice_scores_mask_2[key].extend(
-                [float(x) for x in dice(my_mask_2, label)]
-            )
     for key in dice_scores_mask:
         dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
-        dice_scores_mask_2[key] = np.mean(np.asarray(dice_scores_mask_2[key]))
     df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
     df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_one_3D.csv")
     #df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
-    df_mask_2 = pd.DataFrame(dice_scores_mask_2, index=[0]).T
-    df_mask_2.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_two_3D.csv")
 
 
 def create_mask(zs, th, steps, images):

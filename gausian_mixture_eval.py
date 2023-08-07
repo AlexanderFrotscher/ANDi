@@ -29,10 +29,10 @@ def main():
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
     model = UNet_conditional().to(device)
-    #ckpt = torch.load(
-    #    "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/128_ema_ckpt.pt"
-    #)
-    ckpt = torch.load("./models/trained_models/final_no_flip/160_ema_ckpt.pt")
+    ckpt = torch.load(
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/128_ema_ckpt.pt"
+    )
+    #ckpt = torch.load("./models/trained_models/final_no_flip/160_ema_ckpt.pt")
     # ckpt = torch.load("./models/trained_models/over_trained/248_ema_ckpt.pt")
     model.load_state_dict(ckpt)
     diffusion = Diffusion(noise_steps=1000, img_size=64, device=device)
@@ -46,13 +46,13 @@ def main():
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
         num_steps = 1000
-        skip = 1
+        skip = 50
         my_pred = torch.zeros_like(image)
         my_volume = (
             torch.zeros(
                 (
                     image.shape[0],
-                    int((num_steps-1)/skip),
+                    int((num_steps)/skip),
                     image.shape[1],
                     image.shape[2],
                     image.shape[3],
@@ -78,9 +78,9 @@ def main():
         for j in range(image.shape[4]):
             # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
             # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
-            xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
-            #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
-            #xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
+            #xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
+            xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=skip)
+            #zs = diffusion.skip_inversion_dep(model,image[:,:,:,:,j], timestemp=num_steps, skip=skip)
             my_volume[:,:,:,:,:,j] = zs
         for b in range(image.shape[0]):
             #my_mask = torch.zeros_like(image[b,0,:,:,:])
@@ -95,7 +95,7 @@ def main():
                 #my_values = torch.reshape(my_values,(num_points,int(my_shape))).T
                 my_values = torch.flatten(my_zs,start_dim=1).T
                 my_values = my_values.cpu().numpy()
-                clf = GaussianMixture(n_components=2, covariance_type="diag")
+                clf = GaussianMixture(n_components=1, covariance_type="full")
                 clf.fit(my_values)
                 densities = clf.score_samples(my_values)
                 #my_pred[b,c,:,:,:][~my_mask] = float('inf')
@@ -104,10 +104,10 @@ def main():
                 for k, percentile in enumerate(my_percentiles):
                     my_cut = np.percentile(densities, percentile)
                     tmp_volume[b,k,c,:,:,:] = torch.where(my_pred[b,c,:,:,:] < my_cut, 1.0, 0.0)
-        tmp_volume = torch.mean(tmp_volume,dim=2)
+        tmp_volume = tmp_volume[:,:,0]
         for d in range(my_masks.shape[4]):
             tmp_mask = my_resize(tmp_volume[:,:,:,:,d])
-            tmp_mask[tmp_mask >= 0.25] = 1
+            tmp_mask[tmp_mask >= 0.5] = 1
             tmp_mask[tmp_mask != 1] = 0
             my_masks[:,:,:,:,d] = tmp_mask.type(torch.bool)
         for j, key in enumerate(dice_scores_mask):
