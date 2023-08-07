@@ -176,12 +176,13 @@ def median_filter_3D(volume, kernelsize=5):
 
 
 def median_filter_2D(volume, kernelsize=5):
-    volume = volume.cpu().numpy()
+    my_volume = torch.clone(volume)
+    my_volume = my_volume.cpu().numpy()
     pbar = tqdm(range(len(volume)), desc="Median filtering")
     for i in pbar:
-        for j in range(volume.shape[3]):
-            volume[i, :, :, j] = medfilt2d(volume[i, :, :, j], kernel_size=kernelsize)
-    return torch.Tensor(volume)
+        for j in range(my_volume.shape[3]):
+            my_volume[i, :, :, j] = medfilt2d(my_volume[i, :, :, j], kernel_size=kernelsize)
+    return torch.Tensor(my_volume)
 
 def median_filter_tensor(volume, kernelsize=5):
     for j in range(volume.shape[4]):

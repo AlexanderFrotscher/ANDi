@@ -14,7 +14,6 @@ from utils import *
 
 
 def main():
-    plt.ioff()
     torch.manual_seed(73)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
@@ -78,7 +77,8 @@ def main():
             # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
             # xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
             #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
-            xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
+            #xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
+            zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=50)
 
             for k, key in enumerate(dice_scores_mask):
                 mask = create_mask(
