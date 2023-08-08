@@ -41,8 +41,9 @@ def main():
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
     my_resize = transforms.Resize(128, antialias=True)
-    my_percentiles = [1,2,3,4,5,6,7,8,9,10]
-    dice_scores_mask = {i: [] for i in my_percentiles}
+    dice_scores_class = {i: [] for i in [0,1]}
+    #my_percentiles = [1,2,3,4,5,6,7,8,9,10]
+    #dice_scores_mask = {i: [] for i in my_percentiles}
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
         num_steps = 1000
@@ -61,65 +62,49 @@ def main():
             )
             .to(device)
         )
-        my_masks = (
-            torch.zeros(
-                (
-                    image.shape[0],
-                    len(my_percentiles),
-                    128,
-                    128,
-                    image.shape[4]
-                )
-            )
-            .to(device)
-            .type(torch.bool)
-        )
-        tmp_volume = (torch.zeros((image.shape[0],len(my_percentiles),image.shape[1],image.shape[2],image.shape[3],image.shape[4])).to(device))
+        segmentation = (torch.zeros((image.shape[0],128,128,image.shape[4])).to(device))
         for j in range(image.shape[4]):
             # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
             # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
             #xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
-            xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=skip)
-            #zs = diffusion.skip_inversion_dep(model,image[:,:,:,:,j], timestemp=num_steps, skip=skip)
+            #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=skip)
+            zs = diffusion.skip_inversion_dep(model,image[:,:,:,:,j], timestemp=num_steps, skip=skip)
             my_volume[:,:,:,:,:,j] = zs
         for b in range(image.shape[0]):
-            #my_mask = torch.zeros_like(image[b,0,:,:,:])
-            #my_mask[image[b,0,:,:,:] != -1] = 1
-            #my_mask = my_mask.type(torch.bool)
+            my_mask = torch.zeros_like(image[b,0,:,:,:])
+            my_mask[image[b,0,:,:,:] != -1] = 1
+            my_mask = my_mask.type(torch.bool)
             for c in range(image.shape[1]):
                 my_zs = my_volume[b,:,c,:,:,:]
                 num_points = my_zs.shape[0]
-                #masked_values = my_mask.unsqueeze(0).repeat(num_points,1,1,1).type(torch.bool)
-                #my_values = my_zs[masked_values]
-                #my_shape = my_values.shape[0] / num_points
-                #my_values = torch.reshape(my_values,(num_points,int(my_shape))).T
-                my_values = torch.flatten(my_zs,start_dim=1).T
+                masked_values = my_mask.unsqueeze(0).repeat(num_points,1,1,1).type(torch.bool)
+                my_values = my_zs[masked_values]
+                my_shape = my_values.shape[0] / num_points
+                my_values = torch.reshape(my_values,(num_points,int(my_shape))).T
+                #my_values = torch.flatten(my_zs,start_dim=1).T
                 my_values = my_values.cpu().numpy()
-                clf = GaussianMixture(n_components=1, covariance_type="full")
-                clf.fit(my_values)
-                densities = clf.score_samples(my_values)
-                #my_pred[b,c,:,:,:][~my_mask] = float('inf')
-                #my_pred[b,c,:,:,:][my_mask] = torch.Tensor(densities).to(device)
-                my_pred[b,c,:,:,:] = torch.reshape(torch.Tensor(densities).to(device),(64,64,155))
-                for k, percentile in enumerate(my_percentiles):
-                    my_cut = np.percentile(densities, percentile)
-                    tmp_volume[b,k,c,:,:,:] = torch.where(my_pred[b,c,:,:,:] < my_cut, 1.0, 0.0)
-        tmp_volume = tmp_volume[:,:,0]
-        for d in range(my_masks.shape[4]):
-            tmp_mask = my_resize(tmp_volume[:,:,:,:,d])
-            tmp_mask[tmp_mask >= 0.5] = 1
-            tmp_mask[tmp_mask != 1] = 0
-            my_masks[:,:,:,:,d] = tmp_mask.type(torch.bool)
-        for j, key in enumerate(dice_scores_mask):
-            segmentation = my_masks[:, j, :, :, :]
-            dice_scores_mask[key].extend(
-                [float(x) for x in dice(segmentation, label)])
-    for key in dice_scores_mask:
-        dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
-    df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
-    df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_mixture.csv")
-    #df_mask.to_csv("./results/BraTS21/mask_mixture.csv")
-        
+                clf = GaussianMixture(n_components=2, covariance_type="diag")
+                prediction = clf.fit_predict(my_values)
+                my_pred[b,c,:,:,:][~my_mask] = float('-inf')
+                my_pred[b,c,:,:,:][my_mask] = torch.Tensor(prediction).to(device)
+                #my_pred[b,c,:,:,:] = torch.reshape(torch.Tensor(prediction).to(device),(64,64,155))
+
+        #plot_images(my_pred[:,:,:,:,70],mode='L')   
+        for d in range(my_pred.shape[4]):
+            tmp_mask = my_resize(my_pred[:,:,:,:,d])
+            segmentation[:,:,:,d] = tmp_mask[:,0]
+        segmentation[segmentation > 0.5] = 1
+        segmentation[segmentation != 1] = 0
+        segmentation = segmentation.type(torch.bool)
+        seg2 = ~segmentation
+        dice_scores_class[0].extend([float(x) for x in dice(seg2, label)])
+        dice_scores_class[1].extend([float(x) for x in dice(segmentation, label)])
+    for key in dice_scores_class:
+        dice_scores_class[key] = np.mean(np.asarray(dice_scores_class[key]))
+    df = pd.DataFrame(dice_scores_class, index=[0]).T
+    df.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/gaussian_mixture.csv")
+
+
 
 def median_filter_2D(volume, kernelsize=5):
     volume = volume.cpu().numpy()

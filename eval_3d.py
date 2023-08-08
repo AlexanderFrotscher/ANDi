@@ -39,43 +39,37 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.5, 7, 0.1)]
+    threshold_test = [round(x, 3) for x in np.arange(2, 15, 0.1)]
 
     dice_scores_mask = {i: [] for i in threshold_test}
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
         num_steps = 1000
-        my_masks = (
+        my_volume = (
             torch.zeros(
                 (
                     image.shape[0],
-                    len(threshold_test),
                     128,
                     128,
                     image.shape[4],
                 )
             )
             .to(device)
-            .type(torch.bool)
         )
         for j in range(image.shape[4]):
             # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
             # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
-            # xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
+            #xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
             #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
             #xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
-            zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=100)
+            zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=50)
 
-            for k, key in enumerate(dice_scores_mask):
-                mask = create_mask(
-                    zs, key, steps=num_steps, images=image[:, :, :, :, j]
-                )
-                
-                my_masks[:, k, :, :, j] = mask
-        for j, key in enumerate(dice_scores_mask):
-            my_mask = my_masks[:, j, :, :, :]
+            mask = create_mask(zs, steps=num_steps, images=image[:, :, :, :, j])
+            my_volume[:,:,:,j] = mask
+        for key in enumerate(dice_scores_mask):
+            segmentation = binarize(my_volume,key)
             dice_scores_mask[key].extend(
-                [float(x) for x in dice(my_mask, label)]
+                [float(x) for x in dice(segmentation, label)]
             )
     for key in dice_scores_mask:
         dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
@@ -84,16 +78,19 @@ def main():
     #df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
 
 
-def create_mask(zs, th, steps, images):
+def create_mask(zs, steps, images):
      my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
      my_mean[images[:,:,:,:] == -1] = 0
      my_resize = transforms.Resize(128, antialias=True)
      my_mask = my_resize(my_mean)
-     my_mask = median_filter_2D(my_mask)
+     my_mask = my_mask[:,0]
+     return my_mask
+
+def binarize(mask, th):
+     my_mask = median_filter_3D(mask)
      my_mask = my_mask.to(device='cuda')
      my_mask[my_mask < th] = 0
      my_mask[my_mask != 0] = 1
-     my_mask = my_mask[:,0]
      my_mask = my_mask.type(torch.bool)
      return my_mask
 
@@ -148,6 +145,15 @@ def median_filter_2D(volume, kernelsize=5):
         for j in range(volume.shape[1]):
             volume[i, j, :, :] = medfilt2d(volume[i, j, :, :], kernel_size=kernelsize)
     return torch.Tensor(volume)
+
+
+def median_filter_3D(volume, kernelsize=5):
+    volume = volume.cpu().numpy()
+    pbar = tqdm(range(len(volume)), desc="Median filtering")
+    for i in pbar:
+        volume[i] = median_filter(volume[i], size=(kernelsize, kernelsize, kernelsize))
+    return torch.Tensor(volume)
+
 
 def show_slices(slices):
     """Function to display row of image slices"""
