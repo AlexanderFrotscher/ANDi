@@ -25,7 +25,7 @@ def main():
         "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     )
     # args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_test.csv"
     # args.path_to_csv = "./data/BraTS20/survival_info_01.csv"
     args.batch_size = 20
     args.image_size = 128
@@ -52,9 +52,9 @@ def main():
     my_thresh = max(dice_scores_mask, key=dice_scores_mask.get)
     for i, (image, label) in enumerate(pbar):
         image = (image * 2) - 1
-        my_mask = torch.where(image > my_thresh, image, 0.0)
+        my_mask = torch.where(image > my_thresh, 1.0, 0.0)
         my_mask = median_filter_3D(my_mask[:,0])
-        my_mask[my_mask > 0] = 1
+        #my_mask[my_mask > 0] = 1
         my_mask = my_mask.type(torch.bool)
         my_mask = connected_components_3d(my_mask)
         my_mask = my_mask.type(torch.bool).to(device)

@@ -19,9 +19,9 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_try.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 10
+    args.batch_size = 1
     args.image_size = 64
 
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -85,7 +85,6 @@ def create_mask(zs, steps, images):
      my_mask = my_resize(my_mean)
      my_mask = median_filter_2D(my_mask)
      my_mask = my_mask.to(device='cuda')
-     my_mask = my_mask[:,0]
      return my_mask
 
 def binarize(my_mask, th):
@@ -93,6 +92,7 @@ def binarize(my_mask, th):
      #my_mask = my_mask.to(device='cuda')
      my_mask[my_mask < th] = 0
      my_mask[my_mask != 0] = 1
+     my_mask = my_mask[:,0]
      my_mask = my_mask.type(torch.bool)
      return my_mask
 
