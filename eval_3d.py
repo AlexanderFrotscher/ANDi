@@ -83,12 +83,14 @@ def create_mask(zs, steps, images):
      my_mean[images[:,:,:,:] == -1] = 0
      my_resize = transforms.Resize(128, antialias=True)
      my_mask = my_resize(my_mean)
+     my_mask = median_filter_2D(my_mask)
+     my_mask = my_mask.to(device='cuda')
      my_mask = my_mask[:,0]
      return my_mask
 
-def binarize(mask, th):
-     my_mask = median_filter_3D(mask)
-     my_mask = my_mask.to(device='cuda')
+def binarize(my_mask, th):
+     #my_mask = median_filter_3D(mask)
+     #my_mask = my_mask.to(device='cuda')
      my_mask[my_mask < th] = 0
      my_mask[my_mask != 0] = 1
      my_mask = my_mask.type(torch.bool)
