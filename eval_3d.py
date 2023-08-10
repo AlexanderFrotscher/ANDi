@@ -49,6 +49,7 @@ def main():
             torch.zeros(
                 (
                     image.shape[0],
+                    image.shape[1],
                     128,
                     128,
                     image.shape[4],
@@ -65,7 +66,7 @@ def main():
             zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=50)
 
             mask = create_mask(zs, steps=num_steps, images=image[:, :, :, :, j])
-            my_volume[:,:,:,j] = mask
+            my_volume[:,:,:,:,j] = mask
         for key in enumerate(dice_scores_mask):
             segmentation = binarize(my_volume,key)
             dice_scores_mask[key].extend(
