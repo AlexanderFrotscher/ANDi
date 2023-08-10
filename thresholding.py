@@ -7,10 +7,10 @@ import pandas as pd
 import skimage.exposure as ex
 import torch
 import torch.nn.functional as F
-from accelerate import Accelerator
 from scipy.ndimage import median_filter
 from scipy.signal import medfilt2d
 from skimage.measure import label, regionprops
+from sklearn.metrics import average_precision_score
 from torch.nn.modules.utils import _pair, _quadruple
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
@@ -24,54 +24,61 @@ def main():
     args.dataset_path = (
         "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     )
-    # args.dataset_path = "./data/BraTS20/BraTS20_Training"
+    #args.dataset_path = "./data/BraTS20/BraTS20_Training"
     args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_test.csv"
-    # args.path_to_csv = "./data/BraTS20/survival_info_01.csv"
-    args.batch_size = 20
+    #args.path_to_csv = "./data/BraTS20/survival_info_01.csv"
     args.image_size = 128
-    accelerator = Accelerator()
-    device = accelerator.device
+    device = 'cpu'
 
+    len_df = pd.read_csv(args.path_to_csv)
+    len_df = len(len_df)
+    args.batch_size = len_df
+    
     dataloader = Brats_Volume(args, hist=True)
-    dataloader = accelerator.prepare(dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.8, 0.9, 0.01)]
+    threshold_test = [round(x, 3) for x in np.arange(0.8, 1.0, 0.01)]
     dice_scores_mask = {i: [] for i in threshold_test}
+    my_auprs = {i: [] for i in ['aupr no post','aupr post']}
 
     for i, (image, label) in enumerate(pbar):
-        image = (image * 2) - 1
+        image = image.to(device)
+        label = label.to(device)
+        aupr = average_precision_score(label.view(-1), image.view(-1))
+        my_auprs['aupr no post'].extend([aupr])
         for key in dice_scores_mask:
             my_mask = torch.where(image > key, 1.0, 0.0)
             my_mask = my_mask[:, 0].type(torch.bool).to(device)
-            dice_scores_mask[key].extend([float(x) for x in dice(my_mask, label)])
-    for key in dice_scores_mask:
-        dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
+            dice_scores_mask[key].extend([dice(my_mask, label)])
 
     # use best threshold with connected_components
-    my_scores = []
+    my_score = []
     my_thresh = max(dice_scores_mask, key=dice_scores_mask.get)
     for i, (image, label) in enumerate(pbar):
-        image = (image * 2) - 1
-        my_mask = torch.where(image > my_thresh, 1.0, 0.0)
-        my_mask = median_filter_3D(my_mask[:,0])
-        #my_mask[my_mask > 0] = 1
-        my_mask = my_mask.type(torch.bool)
-        my_mask = connected_components_3d(my_mask)
+        image = image.to(device)
+        label = label.to(device)
+        my_mask = median_filter_3D(image[:,0])
+        #my_mask = connected_components_3d(my_mask)
+        aupr = average_precision_score(label.view(-1), my_mask.view(-1))
+        my_auprs['aupr post'].extend([aupr])
+        my_mask = torch.where(my_mask > my_thresh, 1.0, 0.0)
         my_mask = my_mask.type(torch.bool).to(device)
-        my_scores.extend([float(x) for x in dice(my_mask, label)])
-    my_dice = np.asarray(my_scores).mean()
+        my_score.extend([dice(my_mask, label)])
 
-    dice_scores_mask[f"{my_thresh}_cc"] = my_dice
+    dice_scores_mask[f"{my_thresh}_cc"] = my_score
+    for key in my_auprs:
+        dice_scores_mask[key] = np.asarray(my_auprs[key])
+
+
     df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
     # df_mask.to_csv("./results/Threshold_results/dice_scores.csv")
     df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/dice_threshold.csv")
 
 
 def dice(pred, target):
-    pred_sum = torch.flatten(pred, 1).sum(dim=1)
-    target_sum = torch.flatten(target, 1).sum(dim=1)
-    intersection = torch.flatten(pred, 1).float() * torch.flatten(target, 1).float()
-    dice = (2 * intersection.sum(dim=1)) / (pred_sum + target_sum)
+    pred_sum = pred.view(-1).sum()
+    target_sum = target.view(-1).sum()
+    intersection = pred.view(-1).float() @ target.view(-1).float()
+    dice = (2 * intersection) / (pred_sum + target_sum)
     return dice
 
 
@@ -168,7 +175,7 @@ def hist_norm(images):
 
 
 def median_filter_3D(volume, kernelsize=5):
-    volume = volume.cpu().numpy()
+    volume = volume.numpy()
     pbar = tqdm(range(len(volume)), desc="Median filtering")
     for i in pbar:
         volume[i] = median_filter(volume[i], size=(kernelsize, kernelsize, kernelsize))
@@ -176,13 +183,12 @@ def median_filter_3D(volume, kernelsize=5):
 
 
 def median_filter_2D(volume, kernelsize=5):
-    my_volume = torch.clone(volume)
-    my_volume = my_volume.cpu().numpy()
+    volume = volume.numpy()
     pbar = tqdm(range(len(volume)), desc="Median filtering")
     for i in pbar:
-        for j in range(my_volume.shape[3]):
-            my_volume[i, :, :, j] = medfilt2d(my_volume[i, :, :, j], kernel_size=kernelsize)
-    return torch.Tensor(my_volume)
+        for j in range(volume.shape[3]):
+            volume[i, :, :, j] = medfilt2d(volume[i, :, :, j], kernel_size=kernelsize)
+    return torch.Tensor(volume)
 
 def median_filter_tensor(volume, kernelsize=5):
     for j in range(volume.shape[4]):
