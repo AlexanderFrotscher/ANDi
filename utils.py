@@ -273,10 +273,10 @@ def preprocess_mask(mask):
 
 
 def dice(pred, target):
-    pred_sum = torch.flatten(pred, 1).sum(dim=1)
-    target_sum = torch.flatten(target, 1).sum(dim=1)
-    intersection = torch.flatten(pred, 1).float() * torch.flatten(target, 1).float()
-    dice = (2 * intersection.sum(dim=1)) / (pred_sum + target_sum)
+    pred_sum = pred.view(-1).sum()
+    target_sum = target.view(-1).sum()
+    intersection = pred.view(-1).float() @ target.view(-1).float()
+    dice = (2 * intersection) / (pred_sum + target_sum)
     return dice
 
 

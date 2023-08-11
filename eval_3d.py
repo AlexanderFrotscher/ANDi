@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import torch
 from accelerate import Accelerator, DistributedDataParallelKwargs
+from sklearn.metrics import average_precision_score
 from tqdm import tqdm
 
 from diffusion_cfg import *
@@ -39,99 +40,128 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(2, 15, 0.1)]
-
+    threshold_test = [round(x, 3) for x in np.arange(0.6, 1.0, 0.01)]
+    num_volumes = args.batch_size * len(dataloader)
+    tmp = 0
+    tmp_2 = 1
     dice_scores_mask = {i: [] for i in threshold_test}
-    for i, (image, label) in enumerate(pbar):
-        image = (image * 2) - 1
-        num_steps = 1000
-        my_volume = (
+    my_resize = transforms.Resize(128, antialias=True)
+
+    with torch.no_grad():
+        my_volume = torch.zeros(
+            (
+                num_volumes,
+                4,
+                128,
+                128,
+                155,
+            )
+        ).to("cpu")
+        my_labels = (
             torch.zeros(
                 (
-                    image.shape[0],
-                    image.shape[1],
+                    num_volumes,
                     128,
                     128,
-                    image.shape[4],
+                    155,
                 )
             )
-            .to(device)
+            .type(torch.bool)
+            .to("cpu")
         )
-        for j in range(image.shape[4]):
-            # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
-            # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
-            #xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
-            #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
-            #xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
-            zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=50)
+        for i, (image, label) in enumerate(pbar):
+            image = (image * 2) - 1
+            num_steps = 1000
+            for m in range(args.batch_size):
+                my_labels[tmp] = label[m].to("cpu")
+                tmp += 1
+            for j in range(image.shape[4]):
+                # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
+                # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
+                xts, zs = diffusion.my_inversion_pred(model, image[:, :, :, :, j], timestemp=num_steps)
+                # xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
+                # xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
+                # zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=50)
 
-            mask = create_mask(zs, steps=num_steps, images=image[:, :, :, :, j])
-            my_volume[:,:,:,:,j] = mask
-        for key in enumerate(dice_scores_mask):
-            segmentation = binarize(my_volume,key)
-            dice_scores_mask[key].extend(
-                [float(x) for x in dice(segmentation, label)]
-            )
-    for key in dice_scores_mask:
-        dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
-    df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
-    df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_one_3D.csv")
-    #df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
+                mask = torch.mean(zs, dim=1)
+                mask = my_resize(mask)
+                mask = norm_tensor(mask)
+                upper = tmp_2 * args.batch_size
+                lower = (tmp_2 - 1) * args.batch_size
+                my_volume[lower:upper, :, :, :, j] = mask
+            tmp_2 += 1
+        my_mask = median_filter_3D(my_volume[:, 0])
+        my_labels = my_labels.contiguous()
+        my_mask = my_mask.contiguous()
+        aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
+        for key in dice_scores_mask:
+            segmentation = torch.where(my_mask > key, 1.0, 0.0)
+            segmentation = segmentation.type(torch.bool)
+            dice_scores_mask[key].extend([dice(segmentation, my_labels)])
+    
+
+        dice_scores_mask[f"AUPRC"] = aupr
+        df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
+        df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_3D.csv")
+        # df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
 
 
 def create_mask(zs, steps, images):
-     my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
-     my_mean[images[:,:,:,:] == -1] = 0
-     my_resize = transforms.Resize(128, antialias=True)
-     my_mask = my_resize(my_mean)
-     my_mask = median_filter_2D(my_mask)
-     my_mask = my_mask.to(device='cuda')
-     return my_mask
+    my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
+    my_mean[images[:, :, :, :] == -1] = 0
+    my_resize = transforms.Resize(128, antialias=True)
+    my_mask = my_resize(my_mean)
+    my_mask = median_filter_2D(my_mask)
+    my_mask = my_mask.to(device="cuda")
+    return my_mask
+
 
 def binarize(my_mask, th):
-     #my_mask = median_filter_3D(mask)
-     #my_mask = my_mask.to(device='cuda')
-     my_mask[my_mask < th] = 0
-     my_mask[my_mask != 0] = 1
-     my_mask = my_mask[:,0]
-     my_mask = my_mask.type(torch.bool)
-     return my_mask
+    # my_mask = median_filter_3D(mask)
+    # my_mask = my_mask.to(device='cuda')
+    my_mask[my_mask < th] = 0
+    my_mask[my_mask != 0] = 1
+    my_mask = my_mask[:, 0]
+    my_mask = my_mask.type(torch.bool)
+    return my_mask
 
 
 def create_mask_2(zs, th, steps, images):
     my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
-    my_mean[images[:,:,:,:] == -1] = 0
+    my_mean[images[:, :, :, :] == -1] = 0
     my_resize = transforms.Resize(128, antialias=True)
     my_mean = my_resize(my_mean)
     my_mean = median_filter_2D(my_mean)
-    my_mean = my_mean.to(device='cuda')
+    my_mean = my_mean.to(device="cuda")
     my_mean_1 = my_mean[:, 0]
     my_mean_2 = my_mean[:, 3]
-    my_mean = (my_mean_1 + my_mean_2)*0.5
+    my_mean = (my_mean_1 + my_mean_2) * 0.5
     my_mean[my_mean < th] = 0
     my_mean[my_mean != 0] = 1
     my_mean = my_mean.type(torch.bool)
     return my_mean
 
+
 def create_mask_n(zs, th, steps, images):
-     my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
-     my_mean[images[:,:,:,:] == -1] = 0
-     my_mean[my_mean < th] = 0
-     my_mean[my_mean != 0] = 1
-     my_mean = my_mean[:,0]
-     my_resize = transforms.Resize(128, antialias=True)
-     my_mask = my_resize(my_mean[None, :, :, :])
-     my_mask = my_mask[0]
-     my_mask[my_mask > 0.5] = 1
-     my_mask = my_mask.type(torch.bool)
-     return my_mask
+    my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
+    my_mean[images[:, :, :, :] == -1] = 0
+    my_mean[my_mean < th] = 0
+    my_mean[my_mean != 0] = 1
+    my_mean = my_mean[:, 0]
+    my_resize = transforms.Resize(128, antialias=True)
+    my_mask = my_resize(my_mean[None, :, :, :])
+    my_mask = my_mask[0]
+    my_mask[my_mask > 0.5] = 1
+    my_mask = my_mask.type(torch.bool)
+    return my_mask
+
 
 def create_mask_2_n(zs, th, steps, images):
     my_mean = torch.mean(zs, dim=1) * np.sqrt(steps)
-    my_mean[images[:,:,:,:] == -1] = 0
+    my_mean[images[:, :, :, :] == -1] = 0
     my_mean_1 = my_mean[:, 0]
     my_mean_2 = my_mean[:, 3]
-    my_mean = (my_mean_1 + my_mean_2)*0.5
+    my_mean = (my_mean_1 + my_mean_2) * 0.5
     my_mean[my_mean < th] = 0
     my_mean[my_mean != 0] = 1
     my_resize = transforms.Resize(128, antialias=True)
@@ -140,6 +170,7 @@ def create_mask_2_n(zs, th, steps, images):
     my_mean[my_mean > 0.5] = 1
     my_mean = my_mean.type(torch.bool)
     return my_mean
+
 
 def median_filter_2D(volume, kernelsize=5):
     volume = volume.cpu().numpy()
@@ -164,6 +195,13 @@ def show_slices(slices):
     for i, (slice) in enumerate(slices):
         axes[i].imshow(slice, cmap="gray")
     plt.show()
+
+
+def norm_tensor(tensor):
+    my_max = torch.amax(tensor, dim=(1, 2), keepdim=True)
+    my_min = torch.amin(tensor, dim=(1, 2), keepdim=True)
+    my_tensor = (tensor - my_min) / (my_max - my_min)
+    return my_tensor
 
 
 if __name__ == "__main__":
