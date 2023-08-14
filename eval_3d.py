@@ -20,9 +20,9 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_try.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 1
+    args.batch_size = 10
     args.image_size = 64
 
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -40,7 +40,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.5, 2.5, 0.01)]
+    threshold_test = [round(x, 3) for x in np.arange(0.4, 0.61, 0.01)]
     # num_volumes = args.batch_size * len(dataloader)
     dice_scores_mask = {i: [] for i in threshold_test}
     my_resize = transforms.Resize(128, antialias=True)
@@ -83,28 +83,27 @@ def main():
             for j in range(image.shape[4]):
                 # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
                 # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
-                xts, zs = diffusion.my_inversion_pred(model, image[:, :, :, :, j], timestemp=num_steps)
-                # xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
+                # xts, zs = diffusion.my_inversion_pred(model, image[:, :, :, :, j], timestemp=num_steps)
+                # xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=50)
                 # xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
-                # zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=50)
+                zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=50)
 
-                my_mean = torch.mean(zs, dim=1) * np.sqrt(1000)
+                my_mean = torch.mean(zs, dim=1)
                 my_mean = my_resize(my_mean)
-                #my_mean = norm_tensor(my_mean)
                 tmp_volume[:, :, :, :, j] = my_mean
 
             my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)
-        # my_mask = median_filter_3D(my_volume[:, 0])
+        my_mask = median_filter_3D(my_volume[:, 0])
         my_labels = my_labels[1:].contiguous()
-        my_volume = my_volume[:,0]
-        my_volume = my_volume[1:].contiguous()
-        #aupr = average_precision_score(my_labels.view(-1), my_volume.view(-1))
+        my_mask = norm_tensor(my_mask)
+        my_mask = my_mask[1:].contiguous()
+        aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
         for key in dice_scores_mask:
-            segmentation = torch.where(my_volume > key, 1.0, 0.0)
+            segmentation = torch.where(my_mask > key, 1.0, 0.0)
             segmentation = segmentation.type(torch.bool)
             dice_scores_mask[key].extend([dice(segmentation, my_labels)])
 
-        #dice_scores_mask[f"AUPRC"] = aupr
+        dice_scores_mask[f"AUPRC"] = aupr
         df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
         df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_3D.csv")
         # df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
@@ -202,8 +201,8 @@ def show_slices(slices):
 
 
 def norm_tensor(tensor):
-    my_max = torch.amax(tensor, dim=(-2, -1), keepdim=True)
-    my_min = torch.amin(tensor, dim=(-2, -1), keepdim=True)
+    my_max = torch.max(tensor)
+    my_min = torch.min(tensor)
     my_tensor = (tensor - my_min) / (my_max - my_min)
     return my_tensor
 
