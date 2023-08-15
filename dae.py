@@ -31,6 +31,14 @@ def train(args):
     dataloader = Brats21(args, preload=True)
     model = UNet(args.channels,args.channels,depth=4,wf=6,padding=True).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, amsgrad=True, weight_decay=0.00001)
+
+    if args.train_continue == True:
+        args.target_lr = args.start_lr
+        ckpt = torch.load(args.current_model)
+        model.load_state_dict(ckpt)
+        ckpt = torch.load(args.current_opt)
+        optimizer.load_state_dict(ckpt)
+
     lr_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=100)
     model, optimizer, lr_scheduler, dataloader = accelerator.prepare(
         model, optimizer, lr_scheduler, dataloader
@@ -54,7 +62,7 @@ def train(args):
 
             wandb.log({"loss": loss.item()})
 
-            if epoch % 8 == 0 and accelerator.is_main_process:
+            if epoch % 3 == 0 and accelerator.is_main_process:
                 my_model = accelerator.unwrap_model(model)
                 accelerator.save(
                     my_model.state_dict(),
@@ -70,7 +78,7 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.run_name = "DAE"
-    args.epochs = 33
+    args.epochs = 4
     args.batch_size = 16
     args.image_size = 128
     args.channels = 4
@@ -79,6 +87,13 @@ def main():
     )
     args.lr = 0.0001
     args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_train.csv"
+    args.train_continue = True
+    args.current_model = (
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/DAE/8_ckpt.pt"
+    )
+    args.current_opt = (
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/DAE/8_optim.pt"
+    )
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )
