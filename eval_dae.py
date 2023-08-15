@@ -24,13 +24,13 @@ def main():
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
     args.batch_size = 10
     args.image_size = 128
-    args.channels = 1
+    args.channels = 4
 
     accelerator = Accelerator()
     device = accelerator.device
     model = UNet(args.channels,args.channels,depth=4,wf=6,padding=True).to(device)
     ckpt = torch.load(
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/DAE/8_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/DAE/16_ckpt.pt"
      )
     model.load_state_dict(ckpt)
     dataloader = Brats_Volume(args, hist=False)
@@ -43,7 +43,6 @@ def main():
     with torch.no_grad():
         my_volume = torch.zeros(
             (
-                1,
                 1,
                 128,
                 128,
@@ -67,21 +66,19 @@ def main():
             tmp_volume = torch.zeros(
                 (
                     image.shape[0],
-                    1,
                     128,
                     128,
                     image.shape[4],
                 )
             ).to(device)
             for j in range(image.shape[4]):
-                my_img = model(image)
-                my_diff = torch.abs(image - my_img)
-                my_diff[image[:,:,:,:] == 0] = 0
+                my_img = model(image[:,:,:,:,j])
+                my_diff = torch.abs(image[:,:,:,:,j] - my_img)
+                my_diff[image[:,:,:,:,j] == 0] = 0
                 my_diff = torch.mean(my_diff, dim=1)
-                tmp_volume[:, :, :, :, j] = my_diff
+                tmp_volume[:, :, :, j] = my_diff
 
             my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)
-        #my_mask = median_filter_3D(my_volume[:, 0])
         my_labels = my_labels[1:].contiguous()
         my_mask = my_volume[1:].contiguous()
         aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
@@ -92,7 +89,7 @@ def main():
 
         dice_scores_mask[f"AUPRC"] = aupr
         df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
-        df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_3D.csv")
+        df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/dae_result.csv")
         # df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
 
 

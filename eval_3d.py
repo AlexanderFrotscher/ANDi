@@ -90,6 +90,7 @@ def main():
 
                 my_mean = torch.mean(zs, dim=1)
                 my_mean = my_resize(my_mean)
+                #my_mean = median_filter_2D(my_mean)
                 tmp_volume[:, :, :, :, j] = my_mean
 
             my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)

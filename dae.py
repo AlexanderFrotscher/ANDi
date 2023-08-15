@@ -30,8 +30,8 @@ def train(args):
     device = accelerator.device
     dataloader = Brats21(args, preload=True)
     model = UNet(args.channels,args.channels,depth=4,wf=6,padding=True).to(device)
-    optimiser = torch.optim.Adam(model.parameters(), lr=args.lr, amsgrad=True, weight_decay=0.00001)
-    lr_scheduler = CosineAnnealingLR(optimizer=optimiser, T_max=100)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, amsgrad=True, weight_decay=0.00001)
+    lr_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=100)
     model, optimizer, lr_scheduler, dataloader = accelerator.prepare(
         model, optimizer, lr_scheduler, dataloader
     )
