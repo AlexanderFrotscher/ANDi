@@ -73,15 +73,17 @@ def main():
             ).to(device)
             for j in range(image.shape[4]):
                 my_img = model(image[:,:,:,:,j])
-                mask = image.sum(dim=1, keepdim=True) > 0.01
+                mask = image[:,:,:,:,j].sum(dim=1, keepdim=True) > 0.01
                 # Erode the mask a bit to remove some of the reconstruction errors at the edges.
                 mask = (F.avg_pool2d(mask.float(), kernel_size=5, stride=1, padding=2) > 0.95)
 
-                my_diff = ((image - my_img) * mask).abs().mean(dim=1)
+                my_diff = ((image[:,:,:,:,j] - my_img) * mask).abs().mean(dim=1)
+                #my_diff = median_filter_2D(my_diff)
                 tmp_volume[:, :, :, j] = my_diff
 
             my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)
         my_labels = my_labels[1:].contiguous()
+        my_volume = median_filter_3D(my_volume)
         my_mask = my_volume[1:].contiguous()
         aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
         for key in dice_scores_mask:
@@ -99,8 +101,7 @@ def median_filter_2D(volume, kernelsize=5):
     volume = volume.cpu().numpy()
     pbar = tqdm(range(len(volume)), desc="Median filtering")
     for i in pbar:
-        for j in range(volume.shape[1]):
-            volume[i, j, :, :] = medfilt2d(volume[i, j, :, :], kernel_size=kernelsize)
+        volume[i] = medfilt2d(volume[i], kernel_size=kernelsize)
     return torch.Tensor(volume)
 
 
