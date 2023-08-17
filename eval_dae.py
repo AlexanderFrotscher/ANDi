@@ -30,7 +30,7 @@ def main():
     device = accelerator.device
     model = UNet(args.channels,args.channels,depth=4,wf=6,padding=True).to(device)
     ckpt = torch.load(
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/DAE/16_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/DAE/12_ckpt.pt"
      )
     model.load_state_dict(ckpt)
     dataloader = Brats_Volume(args, hist=False)
@@ -39,7 +39,7 @@ def main():
     pbar = tqdm(dataloader)
     threshold_diff = [x / 1000 for x in range(1, 1000)]
     dice_scores_mask = {i: [] for i in threshold_diff}
-
+    model.eval()
     with torch.no_grad():
         my_volume = torch.zeros(
             (
@@ -73,9 +73,11 @@ def main():
             ).to(device)
             for j in range(image.shape[4]):
                 my_img = model(image[:,:,:,:,j])
-                my_diff = torch.abs(image[:,:,:,:,j] - my_img)
-                my_diff[image[:,:,:,:,j] == 0] = 0
-                my_diff = torch.mean(my_diff, dim=1)
+                mask = image.sum(dim=1, keepdim=True) > 0.01
+                # Erode the mask a bit to remove some of the reconstruction errors at the edges.
+                mask = (F.avg_pool2d(mask.float(), kernel_size=5, stride=1, padding=2) > 0.95)
+
+                my_diff = ((image - my_img) * mask).abs().mean(dim=1)
                 tmp_volume[:, :, :, j] = my_diff
 
             my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)
