@@ -41,7 +41,7 @@ def main():
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
     my_resize = transforms.Resize(128, antialias=True)
-    dice_scores_class = {i: [] for i in [0,1,2]}
+    dice_scores_class = {i: [] for i in [0,1]}
     #my_percentiles = [1,2,3,4,5,6,7,8,9,10]
     #dice_scores_mask = {i: [] for i in my_percentiles}
     for i, (image, label) in enumerate(pbar):
@@ -53,7 +53,7 @@ def main():
             torch.zeros(
                 (
                     image.shape[0],
-                    int((num_steps)/skip),
+                    num_steps - 1,
                     image.shape[1],
                     image.shape[2],
                     image.shape[3],
@@ -66,28 +66,28 @@ def main():
         for j in range(image.shape[4]):
             # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
             # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
-            #xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
+            xts, zs = diffusion.my_inversion_pred(model,image[:,:,:,:,j], timestemp=num_steps)
             #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=skip)
-            zs = diffusion.skip_inversion_dep(model,image[:,:,:,:,j], timestemp=num_steps, skip=skip)
+            #zs = diffusion.skip_inversion_dep(model,image[:,:,:,:,j], timestemp=num_steps, skip=skip)
             my_volume[:,:,:,:,:,j] = zs
         for b in range(image.shape[0]):
-            #my_mask = torch.zeros_like(image[b,0,:,:,:])
-            #my_mask[image[b,0,:,:,:] != -1] = 1
-            #my_mask = my_mask.type(torch.bool)
+            my_mask = torch.zeros_like(image[b,0,:,:,:])
+            my_mask[image[b,0,:,:,:] != -1] = 1
+            my_mask = my_mask.type(torch.bool)
             for c in range(image.shape[1]):
                 my_zs = my_volume[b,:,c,:,:,:]
-                #num_points = my_zs.shape[0]
-                #masked_values = my_mask.unsqueeze(0).repeat(num_points,1,1,1).type(torch.bool)
-                #my_values = my_zs[masked_values]
-                #my_shape = my_values.shape[0] / num_points
-                #my_values = torch.reshape(my_values,(num_points,int(my_shape))).T
-                my_values = torch.flatten(my_zs,start_dim=1).T
+                num_points = my_zs.shape[0]
+                masked_values = my_mask.unsqueeze(0).repeat(num_points,1,1,1).type(torch.bool)
+                my_values = my_zs[masked_values]
+                my_shape = my_values.shape[0] / num_points
+                my_values = torch.reshape(my_values,(num_points,int(my_shape))).T
+                #my_values = torch.flatten(my_zs,start_dim=1).T
                 my_values = my_values.cpu().numpy()
-                clf = GaussianMixture(n_components=3, covariance_type="spherical")
+                clf = GaussianMixture(n_components=2, covariance_type="spherical")
                 prediction = clf.fit_predict(my_values)
-                #my_pred[b,c,:,:,:][~my_mask] = float('-inf')
-                #my_pred[b,c,:,:,:][my_mask] = torch.Tensor(prediction).to(device)
-                my_pred[b,c,:,:,:] = torch.reshape(torch.Tensor(prediction).to(device),(64,64,155))
+                my_pred[b,c,:,:,:][~my_mask] = float('-inf')
+                my_pred[b,c,:,:,:][my_mask] = torch.Tensor(prediction).to(device)
+                #my_pred[b,c,:,:,:] = torch.reshape(torch.Tensor(prediction).to(device),(64,64,155))
 
         #plot_images(my_pred[:,:,:,:,70],mode='L')   
         for d in range(my_pred.shape[4]):
@@ -96,21 +96,15 @@ def main():
         
         seg0 = segmentation
         seg0[seg0 !=0] = 1
-        seg0 = ~seg0
         seg0 = seg0.type(torch.bool)
-
+        seg0 = ~seg0
+    
         seg1 = segmentation
         seg1[seg1 != 1] = 0
         seg1 = seg1.type(torch.bool)
         
-        seg2 = segmentation
-        seg2[seg2 < 2] = 0
-        seg2[seg2 !=0] = 1
-        seg2 = seg2.type(torch.bool)
-        
         dice_scores_class[0].extend([float(x) for x in dice(seg0, label)])
         dice_scores_class[1].extend([float(x) for x in dice(seg1, label)])
-        dice_scores_class[2].extend([float(x) for x in dice(seg2, label)])
     for key in dice_scores_class:
         dice_scores_class[key] = np.mean(np.asarray(dice_scores_class[key]))
     df = pd.DataFrame(dice_scores_class, index=[0]).T
