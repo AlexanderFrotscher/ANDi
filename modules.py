@@ -120,11 +120,11 @@ class DoubleConv(nn.Module):
         if not mid_channels:
             mid_channels = out_channels
         self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False),
-            nn.GroupNorm(1, mid_channels),
-            nn.GELU(),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
             nn.GroupNorm(1, out_channels),
+            #nn.GELU(),
+            #nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            #nn.GroupNorm(1, out_channels),
         )
 
     def forward(self, x):
@@ -161,7 +161,7 @@ class Up(nn.Module):
         self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
         self.conv = nn.Sequential(
             DoubleConv(in_channels, in_channels, residual=True),
-            DoubleConv(in_channels, out_channels, in_channels // 2),
+            DoubleConv(in_channels, out_channels),
         )
 
         self.emb_layer = nn.Sequential(
@@ -178,7 +178,7 @@ class Up(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, c_in=4, c_out=4, img_size=64, time_dim=256, device="cuda"):
+    def __init__(self, c_in=4, c_out=4, img_size=128, time_dim=256, device="cuda"):
         super().__init__()
         self.device = device
         self.time_dim = time_dim
@@ -190,9 +190,9 @@ class UNet(nn.Module):
         self.down3 = Down(256, 256)
         self.sa3 = SelfAttention(256, int(img_size / 8))
 
-        self.bot1 = DoubleConv(256, 512)
-        self.bot2 = DoubleConv(512, 512)
-        self.bot3 = DoubleConv(512, 256)
+        #self.bot1 = DoubleConv(256, 512)
+        self.bot = DoubleConv(256, 256)
+        #self.bot3 = DoubleConv(512, 256)
 
         self.up1 = Up(512, 128)
         self.sa4 = SelfAttention(128, int(img_size / 4))
@@ -221,9 +221,9 @@ class UNet(nn.Module):
         x4 = self.down3(x3, t)
         x4 = self.sa3(x4)
 
-        x4 = self.bot1(x4)
-        x4 = self.bot2(x4)
-        x4 = self.bot3(x4)
+        #x4 = self.bot1(x4)
+        x4 = self.bot(x4)
+        #x4 = self.bot3(x4)
 
         x = self.up1(x4, x3, t)
         x = self.sa4(x)
@@ -245,7 +245,7 @@ class UNet_conditional(UNet):
         self,
         c_in=4,
         c_out=4,
-        img_size=64,
+        img_size=128,
         time_dim=256,
         num_classes=None,
         device="cuda",

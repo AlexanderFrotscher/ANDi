@@ -104,7 +104,7 @@ class Diffusion:
                 )
             for i in tqdm(reversed(range(1, self.noise_steps)), position=0):
                 t = (torch.ones(n) * i).long().to(self.device)
-                predicted_noise = model(x, t, labels)
+                predicted_noise = model(x, t)
                 if cfg_scale > 0:
                     uncond_predicted_noise = model(x, t, None)
                     predicted_noise = torch.lerp(
@@ -178,7 +178,7 @@ class Diffusion:
                 # t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
                 x_t = xts[:, i]
                 x_tm1 = xts[:, i - 1]
-                predicted_noise = model(x_t, t, None)
+                predicted_noise = model(x_t, t)
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                 beta = self.beta[t][:, None, None, None]
                 # alpha_hat = self.alpha_hat[t][:, None, None, None]
@@ -226,7 +226,7 @@ class Diffusion:
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 x_t = xts[:, i]
                 x_tm1 = xts[:, i - 1]
-                predicted_noise = model(x_t, t, None)
+                predicted_noise = model(x_t, t)
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                 # beta = self.beta[t][:, None, None, None]
                 scale_t = scaling[t][:, None, None, None]
@@ -270,7 +270,7 @@ class Diffusion:
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
                 x_t = xts[:, i]
-                predicted_noise = model(x_t, t, None)
+                predicted_noise = model(x_t, t)
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                 beta = self.beta[t][:, None, None, None]
                 alpha = self.alpha[t][:, None, None, None]
@@ -323,7 +323,7 @@ class Diffusion:
             for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
-                predicted_noise = model(predcited_chain, t, None)
+                predicted_noise = model(predcited_chain, t)
                 mu_t = self.ddpm_mu_t(predcited_chain, predicted_noise, t)
                 beta = self.beta[t][:, None, None, None]
                 alpha = self.alpha[t][:, None, None, None]
@@ -386,7 +386,7 @@ class Diffusion:
             current_scale = self.beta[t][:, None, None, None]
             for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                predicted_noise = model(predcited_chain, t, None)
+                predicted_noise = model(predcited_chain, t)
                 mu_t = self.ddpm_mu_t(predcited_chain, predicted_noise, t)
                 beta = self.beta[t][:, None, None, None]
                 predcited_chain = mu_t
@@ -428,7 +428,7 @@ class Diffusion:
             for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
-                predicted_noise = model(predcited_chain, t, None)
+                predicted_noise = model(predcited_chain, t)
                 mu_t = self.ddpm_mu_t(predcited_chain, predicted_noise, t)
                 beta = self.beta[t][:, None, None, None]
                 alpha = self.alpha[t][:, None, None, None]
@@ -463,7 +463,7 @@ class Diffusion:
             x = xts[:, -1]
             for i in tqdm(reversed(range(1, num_steps)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                predicted_noise = model(x, t, None)
+                predicted_noise = model(x, t)
                 if cfg_scale > 0:
                     sample_noise = model(xts[:, i], t, None)
                     predicted_noise = torch.lerp(
@@ -501,10 +501,9 @@ def train(args):
     dataloader = Brats21(args, preload=True)
     steps_per_epoch = int(np.ceil(len(dataloader.dataset) / args.batch_size))
     number_of_steps = steps_per_epoch * args.epochs
-    model = UNet_conditional(
+    model = UNet(
         c_in=args.channels,
         c_out=args.channels,
-        num_classes=args.num_classes,
         device=device,
         img_size=args.image_size,
     )
@@ -549,12 +548,11 @@ def train(args):
             t = diffusion.sample_timesteps(images.shape[0]).to(
                 device
             )  # every picture gets one timestep in one epoch
-            # x_t, noise = diffusion.noise_images(images, t)
-            x_t, noise = diffusion.noise_images_coarse(images, t)
+            x_t, noise = diffusion.noise_images(images, t)
             # if np.random.random() < 0.1:
             #    labels = None
             # predicted_noise = model(x_t, t, labels)
-            predicted_noise = model(x_t, t, None)
+            predicted_noise = model(x_t, t)
             loss = mse(noise, predicted_noise)
 
             optimizer.zero_grad()
@@ -597,20 +595,19 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "BraTS21_coarse"
-    args.epochs = 161
-    args.batch_size = 20
-    args.image_size = 64
+    args.run_name = "Brats128"
+    args.epochs = 129
+    args.batch_size = 32
+    args.image_size = 128
     args.channels = 4
-    args.num_classes = None  # 116
     args.dataset_path = (
         "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     )
-    # args.dataset_path = './data/BraTS20'
+    #args.dataset_path = './data/BraTS20/BraTS20_Training'
     args.start_lr = 2e-5
     args.target_lr = 1e-4
     args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_train.csv"
-    # args.path_to_csv = './data/survival_info_02.csv'
+    #args.path_to_csv = './data/BraTS20/healthy_slices_small.csv'
     args.train_continue = False
     args.current_model = (
         "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_ckpt.pt"
