@@ -90,7 +90,7 @@ class SelfAttention(nn.Module):
         self.channels = channels
         self.size = size
         self.mha = nn.MultiheadAttention(
-            channels, 4, batch_first=True
+            channels, 1, batch_first=True
         )  # second argument is number of head -> increase
         self.ln = nn.LayerNorm([channels])
         self.ff_self = nn.Sequential(
@@ -120,11 +120,11 @@ class DoubleConv(nn.Module):
         if not mid_channels:
             mid_channels = out_channels
         self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False),
-            nn.GroupNorm(1, mid_channels),
-            nn.GELU(),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
             nn.GroupNorm(1, out_channels),
+            nn.GELU(),
+            #nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            #nn.GroupNorm(1, out_channels),
         )
 
     def forward(self, x):
@@ -161,7 +161,8 @@ class Up(nn.Module):
         self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
         self.conv = nn.Sequential(
             DoubleConv(in_channels, in_channels, residual=True),
-            DoubleConv(in_channels, out_channels, in_channels // 2),
+            DoubleConv(in_channels, in_channels // 2),
+            DoubleConv(in_channels // 2, out_channels),
         )
 
         self.emb_layer = nn.Sequential(
@@ -178,29 +179,32 @@ class Up(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, c_in=4, c_out=4, img_size=64, time_dim=256, device="cuda"):
+    def __init__(self, c_in=4, c_out=4, img_size=128, time_dim=256, device="cuda"):
         super().__init__()
         self.device = device
         self.time_dim = time_dim
-        self.inc = DoubleConv(c_in, 64)  # c_in, c_out
+        self.inc = DoubleConv(c_in, 32)  # c_in, c_out
+        self.inc2 = DoubleConv(32,32)
+        self.down_add = Down(32,64)
         self.down1 = Down(64, 128)  # c_in, c_out
-        self.sa1 = SelfAttention(128, int(img_size / 2))  # c_in, image_size
+        self.sa1 = SelfAttention(128, int(img_size / 4))  # c_in, image_size
         self.down2 = Down(128, 256)
-        self.sa2 = SelfAttention(256, int(img_size / 4))
+        self.sa2 = SelfAttention(256, int(img_size / 8))
         self.down3 = Down(256, 256)
-        self.sa3 = SelfAttention(256, int(img_size / 8))
+        self.sa3 = SelfAttention(256, int(img_size / 16))
 
         self.bot1 = DoubleConv(256, 512)
         self.bot2 = DoubleConv(512, 512)
         self.bot3 = DoubleConv(512, 256)
 
         self.up1 = Up(512, 128)
-        self.sa4 = SelfAttention(128, int(img_size / 4))
+        self.sa4 = SelfAttention(128, int(img_size / 8))
         self.up2 = Up(256, 64)
-        self.sa5 = SelfAttention(64, int(img_size / 2))
-        self.up3 = Up(128, 64)
-        self.sa6 = SelfAttention(64, img_size)
-        self.outc = nn.Conv2d(64, c_out, kernel_size=1)
+        self.sa5 = SelfAttention(64, int(img_size / 4))
+        self.up3 = Up(128, 32)
+        self.sa6 = SelfAttention(32, int(img_size / 2))
+        self.up_add = Up(64, 32)
+        self.outc = nn.Conv2d(32, c_out, kernel_size=1)
 
     def pos_encoding(self, t, channels):
         inv_freq = 1.0 / (
@@ -214,7 +218,9 @@ class UNet(nn.Module):
 
     def unet_forward(self, x, t):
         x1 = self.inc(x)
-        x2 = self.down1(x1, t)
+        x1_1 = self.inc2(x1)
+        x1_2 = self.down_add(x1_1,t)
+        x2 = self.down1(x1_2, t)
         x2 = self.sa1(x2)
         x3 = self.down2(x2, t)
         x3 = self.sa2(x3)
@@ -229,8 +235,9 @@ class UNet(nn.Module):
         x = self.sa4(x)
         x = self.up2(x, x2, t)
         x = self.sa5(x)
-        x = self.up3(x, x1, t)
+        x = self.up3(x, x1_2, t)
         x = self.sa6(x)
+        x = self.up_add(x,x1_1,t)
         output = self.outc(x)
         return output
 
@@ -245,7 +252,7 @@ class UNet_conditional(UNet):
         self,
         c_in=4,
         c_out=4,
-        img_size=64,
+        img_size=128,
         time_dim=256,
         num_classes=None,
         device="cuda",
