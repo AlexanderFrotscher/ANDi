@@ -83,7 +83,7 @@ def main():
                 my_values = torch.reshape(my_values,(num_points,int(my_shape))).T
                 #my_values = torch.flatten(my_zs,start_dim=1).T
                 my_values = my_values.cpu().numpy()
-                clf = GaussianMixture(n_components=2, covariance_type="spherical")
+                clf = GaussianMixture(n_components=2, covariance_type="full")
                 prediction = clf.fit_predict(my_values)
                 my_pred[b,c,:,:,:][~my_mask] = float('-inf')
                 my_pred[b,c,:,:,:][my_mask] = torch.Tensor(prediction).to(device)
@@ -103,10 +103,8 @@ def main():
         seg1[seg1 != 1] = 0
         seg1 = seg1.type(torch.bool)
         
-        dice_scores_class[0].extend([float(x) for x in dice(seg0, label)])
-        dice_scores_class[1].extend([float(x) for x in dice(seg1, label)])
-    for key in dice_scores_class:
-        dice_scores_class[key] = np.mean(np.asarray(dice_scores_class[key]))
+        dice_scores_class[0].extend([dice(seg0, label).cpu()])
+        dice_scores_class[1].extend([dice(seg1, label).cpu()])
     df = pd.DataFrame(dice_scores_class, index=[0]).T
     df.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/gaussian_mixture.csv")
 

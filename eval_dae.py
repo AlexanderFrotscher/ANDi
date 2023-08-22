@@ -20,9 +20,9 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_test.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 10
+    args.batch_size = 20
     args.image_size = 128
     args.channels = 4
 
@@ -77,8 +77,10 @@ def main():
                 # Erode the mask a bit to remove some of the reconstruction errors at the edges.
                 mask = (F.avg_pool2d(mask.float(), kernel_size=5, stride=1, padding=2) > 0.95)
 
-                my_diff = ((image[:,:,:,:,j] - my_img) * mask).abs().mean(dim=1)
+                my_diff = ((image[:,:,:,:,j] - my_img) * mask).abs() #.mean(dim=1)
+                #my_diff = (my_diff[:,0] + my_diff[:,3]) * 0.5
                 #my_diff = median_filter_2D(my_diff)
+                my_diff = my_diff[:,0]
                 tmp_volume[:, :, :, j] = my_diff
 
             my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)
