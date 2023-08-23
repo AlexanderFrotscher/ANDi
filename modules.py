@@ -182,25 +182,28 @@ class UNet(nn.Module):
         super().__init__()
         self.device = device
         self.time_dim = time_dim
-        self.inc = DoubleConv(c_in, 64)  # c_in, c_out
-        self.down1 = Down(64, 128)  # c_in, c_out
-        self.sa1 = SelfAttention(128, int(img_size / 2))  # c_in, image_size
-        self.down2 = Down(128, 256)
-        self.sa2 = SelfAttention(256, int(img_size / 4))
-        self.down3 = Down(256, 256)
-        self.sa3 = SelfAttention(256, int(img_size / 8))
+        self.inc = DoubleConv(c_in, 32)  # c_in, c_out
+        self.inc2 = DoubleConv(32, 32, residual=True)
+        self.down1 = Down(32, 64)
+        self.down2 = Down(64, 128)  # c_in, c_out
+        self.sa1 = SelfAttention(128, int(img_size / 4))  # c_in, image_size
+        self.down3 = Down(128, 256)
+        self.sa2 = SelfAttention(256, int(img_size / 8))
+        self.down4 = Down(256, 256)
+        self.sa3 = SelfAttention(256, int(img_size / 16))
 
         #self.bot1 = DoubleConv(256, 512)
         self.bot = DoubleConv(256, 256)
         #self.bot3 = DoubleConv(512, 256)
 
+        self.sa4 = SelfAttention(256,int(img_size / 16))
         self.up1 = Up(512, 128)
-        self.sa4 = SelfAttention(128, int(img_size / 4))
+        self.sa5 = SelfAttention(128, int(img_size / 8))
         self.up2 = Up(256, 64)
-        self.sa5 = SelfAttention(64, int(img_size / 2))
-        self.up3 = Up(128, 64)
-        self.sa6 = SelfAttention(64, img_size)
-        self.outc = nn.Conv2d(64, c_out, kernel_size=1)
+        self.sa6 = SelfAttention(64, int(img_size / 4))
+        self.up3 = Up(128, 32)
+        self.up4 = Up(64,32)
+        self.outc = nn.Conv2d(32, c_out, kernel_size=1)
 
     def pos_encoding(self, t, channels):
         inv_freq = 1.0 / (
@@ -214,23 +217,26 @@ class UNet(nn.Module):
 
     def unet_forward(self, x, t):
         x1 = self.inc(x)
+        x1 = self.inc2(x1)
         x2 = self.down1(x1, t)
-        x2 = self.sa1(x2)
         x3 = self.down2(x2, t)
-        x3 = self.sa2(x3)
+        x3 = self.sa1(x3)
         x4 = self.down3(x3, t)
-        x4 = self.sa3(x4)
+        x4 = self.sa2(x4)
+        x5 = self.down4(x4, t)
+        x5 = self.sa3(x5)
 
         #x4 = self.bot1(x4)
-        x4 = self.bot(x4)
+        x5 = self.bot(x5)
         #x4 = self.bot3(x4)
 
-        x = self.up1(x4, x3, t)
-        x = self.sa4(x)
-        x = self.up2(x, x2, t)
+        x = self.sa4(x5)
+        x = self.up1(x, x4, t)
         x = self.sa5(x)
-        x = self.up3(x, x1, t)
+        x = self.up2(x, x3, t)
         x = self.sa6(x)
+        x = self.up3(x, x2, t)
+        x = self.up4(x, x1, t)
         output = self.outc(x)
         return output
 
