@@ -192,9 +192,9 @@ class UNet(nn.Module):
         self.down4 = Down(256, 256)
         self.sa3 = SelfAttention(256, int(img_size / 16))
 
-        #self.bot1 = DoubleConv(256, 512)
-        self.bot = DoubleConv(256, 256)
-        #self.bot3 = DoubleConv(512, 256)
+        self.bot1 = DoubleConv(256, 512)
+        #self.bot = DoubleConv(256, 256)
+        self.bot3 = DoubleConv(512, 256)
 
         self.sa4 = SelfAttention(256,int(img_size / 16))
         self.up1 = Up(512, 128)
@@ -226,9 +226,9 @@ class UNet(nn.Module):
         x5 = self.down4(x4, t)
         x5 = self.sa3(x5)
 
-        #x4 = self.bot1(x4)
-        x5 = self.bot(x5)
-        #x4 = self.bot3(x4)
+        x5 = self.bot1(x5)
+        #x5 = self.bot(x5)
+        x5 = self.bot3(x5)
 
         x = self.sa4(x5)
         x = self.up1(x, x4, t)

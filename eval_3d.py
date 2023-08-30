@@ -20,17 +20,17 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_test.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 80
-    args.image_size = 64
+    args.batch_size = 10
+    args.image_size = 128
 
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
-    model = UNet_conditional().to(device)
+    model = UNet().to(device=device)
     ckpt = torch.load(
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/BraTS21_5/128_ema_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_model2_2/320_ema_ckpt.pt"
      )
     #ckpt = torch.load("./models/trained_models/final_no_flip/80_ema_ckpt.pt")
     # ckpt = torch.load("./models/trained_models/over_trained/248_ema_ckpt.pt")
@@ -40,10 +40,10 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.2, 0.61, 0.01)]
+    threshold_test = [round(x, 3) for x in np.arange(0.2, 0.81, 0.01)]
     # num_volumes = args.batch_size * len(dataloader)
     dice_scores_mask = {i: [] for i in threshold_test}
-    my_resize = transforms.Resize(128, antialias=True)
+    #my_resize = transforms.Resize(128, antialias=True)
 
     with torch.no_grad():
         my_volume = torch.zeros(
@@ -69,7 +69,7 @@ def main():
         )
         for i, (image, label) in enumerate(pbar):
             image = (image * 2) - 1
-            num_steps = 1000
+            num_steps = 500
             my_labels = torch.cat((my_labels, label.to("cpu")), dim=0)
             tmp_volume = torch.zeros(
                 (
@@ -81,20 +81,20 @@ def main():
                 )
             ).to(device)
             for j in range(image.shape[4]):
-                # xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
+                #xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
                 # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
-                # xts, zs = diffusion.my_inversion_pred(model, image[:, :, :, :, j], timestemp=num_steps)
+                #xts, zs = diffusion.my_inversion_pred(model, image[:, :, :, :, j], timestemp=num_steps)
                 # xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=50)
                 # xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
-                zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=50)
+                zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=10)
 
                 my_mean = torch.mean(zs, dim=1)
-                my_mean = my_resize(my_mean)
+                #my_mean = my_resize(my_mean)
                 #my_mean = median_filter_2D(my_mean)
                 tmp_volume[:, :, :, :, j] = my_mean
-
+            #tmp_volume[image == -1] = 0
             my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)
-        my_mask = (my_volume[:,0] + my_volume[:,3]) * 0.5
+        my_mask = (my_volume[:,0]+my_volume[:,3]) * 0.5
         my_mask = median_filter_3D(my_mask)
         my_labels = my_labels[1:].contiguous()
         my_mask = norm_tensor(my_mask)

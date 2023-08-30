@@ -344,11 +344,11 @@ def Brats21(args, preload=False, eval=False, hist=False):
                 my_slice = img[0, :, :, i]
                 my_mask = mask[:, :, i]
                 num_zeros = np.count_nonzero(my_slice == 0)
-                if num_zeros < 54720 and 1 not in my_mask:
+                if num_zeros < 54144 and 1 not in my_mask:
                     my_slices.append(img[:, :, :, i])
         dataset = preload_dataset(my_slices, my_transforms)
         dataloader = DataLoader(
-            dataset, batch_size=args.batch_size, num_workers=2, shuffle=True
+            dataset, batch_size=args.batch_size, num_workers=4, shuffle=True
         )
     else:
         df = pd.read_csv(args.path_to_csv)

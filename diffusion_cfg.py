@@ -83,7 +83,7 @@ class Diffusion:
             - torch.sqrt((1 - alpha_hat) / (alpha_hat)) * predicted_noise
         )
         pred_x0 = pred_x0.clamp(-1, 1)
-        # pred_x0 = clamp_to_spatial_quantile(pred_x0,0.99)
+        #pred_x0 = clamp_to_spatial_quantile(pred_x0,0.99)
         return (
             (torch.sqrt(alpha_hat_minus_one) * beta) / (1 - alpha_hat)
         ) * pred_x0 + (
@@ -230,7 +230,7 @@ class Diffusion:
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                 # beta = self.beta[t][:, None, None, None]
                 scale_t = scaling[t][:, None, None, None]
-                z_t = (x_tm1 - mu_t) / torch.sqrt(scale_t)
+                z_t = (x_tm1 - mu_t) #/ torch.sqrt(scale_t)
                 zs[:, i - 1] = z_t
         return xts, zs
 
@@ -281,7 +281,7 @@ class Diffusion:
                 wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
                 mean = w0 * images + wt * x_t
                 # what was supposed to be predicted and what is predicted
-                z_t = (mean - mu_t) / torch.sqrt(beta)
+                z_t = (mean - mu_t) #/ torch.sqrt(beta)
                 zs[:, i - 1] = z_t
         return xts, zs
 
@@ -429,7 +429,7 @@ class Diffusion:
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
                 predicted_noise = model(predcited_chain, t)
-                mu_t = self.ddpm_mu_t(predcited_chain, predicted_noise, t)
+                mu_t = self.ddpm_mu_t_2(predcited_chain, predicted_noise, t)
                 beta = self.beta[t][:, None, None, None]
                 alpha = self.alpha[t][:, None, None, None]
                 alpha_hat = self.alpha_hat[t][:, None, None, None]
@@ -443,14 +443,14 @@ class Diffusion:
                 current_scale = current_scale + beta
                 if i % skip == 0 or i == 1:
                     if i != 1:
-                        z_t = (correct_chain - predcited_chain) / torch.sqrt(
-                            current_scale
-                        )
+                        z_t = (correct_chain - predcited_chain) # / torch.sqrt(
+                       #     current_scale
+                       # )
                         zs[:, int(i / skip)] = z_t
                         predcited_chain = correct_chain
                         current_scale = self.beta[t_m1][:, None, None, None]
                     else:
-                        z_t = (images - predcited_chain) / torch.sqrt(current_scale)
+                        z_t = (images - predcited_chain) #/ torch.sqrt(current_scale)
                         zs[:, 0] = z_t
         return zs
 
@@ -562,7 +562,7 @@ def train(args):
             ema.step_ema(ema_model, model)
             wandb.log({"MSE": loss.item()})
 
-        if epoch % 8 == 0 and accelerator.is_main_process:
+        if epoch > 200 and epoch % 16 == 0 and accelerator.is_main_process:
             my_model = accelerator.unwrap_model(model)
             my_ema_model = accelerator.unwrap_model(ema_model)
             # labels = torch.arange(args.num_classes).long().to(device)
@@ -595,9 +595,9 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "Brats128"
-    args.epochs = 129
-    args.batch_size = 32
+    args.run_name = "Brats128_model2_2"
+    args.epochs = 321
+    args.batch_size = 128
     args.image_size = 128
     args.channels = 4
     args.dataset_path = (
@@ -610,13 +610,13 @@ def main():
     #args.path_to_csv = './data/BraTS20/healthy_slices_small.csv'
     args.train_continue = False
     args.current_model = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128/256_ckpt.pt"
     )
     args.current_ema = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_ema_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128/256_ema_ckpt.pt"
     )
     args.current_opt = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/80_optim.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128/256_optim.pt"
     )
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
