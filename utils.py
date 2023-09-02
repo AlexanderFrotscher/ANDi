@@ -365,7 +365,7 @@ def Brats_Volume(args, hist=False):
     df = pd.read_csv(args.path_to_csv)
     dataset = BratsDataVolume(df, args.dataset_path, args.image_size, hist=hist)
     dataloader = DataLoader(
-        dataset, batch_size=args.batch_size, num_workers=4, shuffle=False
+        dataset, batch_size=args.batch_size, num_workers=2, shuffle=False
     )
     return dataloader
 

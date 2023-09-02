@@ -423,13 +423,13 @@ class Diffusion:
             x_t, noise = self.noise_images(images, t)
             # generate the latents
             correct_chain = x_t
-            predcited_chain = x_t
+            predicted_chain = x_t
             current_scale = self.beta[t][:, None, None, None]
             for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
-                predicted_noise = model(predcited_chain, t)
-                mu_t = self.ddpm_mu_t_2(predcited_chain, predicted_noise, t)
+                predicted_noise = model(predicted_chain, t)
+                mu_t = self.ddpm_mu_t_2(predicted_chain, predicted_noise, t)
                 beta = self.beta[t][:, None, None, None]
                 alpha = self.alpha[t][:, None, None, None]
                 alpha_hat = self.alpha_hat[t][:, None, None, None]
@@ -439,19 +439,23 @@ class Diffusion:
                 wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
                 mean = w0 * images + wt * correct_chain
                 correct_chain = mean
-                predcited_chain = mu_t
+                predicted_chain = mu_t
                 current_scale = current_scale + beta
                 if i % skip == 0 or i == 1:
                     if i != 1:
-                        z_t = (correct_chain - predcited_chain) # / torch.sqrt(
-                       #     current_scale
-                       # )
+                        z_t = correct_chain - predicted_chain  #/ torch.sqrt(
+                        #    current_scale
+                        #)
                         zs[:, int(i / skip)] = z_t
-                        predcited_chain = correct_chain
+                        predicted_chain = correct_chain
                         current_scale = self.beta[t_m1][:, None, None, None]
                     else:
-                        z_t = (images - predcited_chain) #/ torch.sqrt(current_scale)
+                        z_t = (images - predicted_chain) #/ torch.sqrt(current_scale)
                         zs[:, 0] = z_t
+                #var = (beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat))
+                #noise = torch.rand_like(images)
+                #predicted_chain = predicted_chain + var.sqrt() * noise
+                #correct_chain = correct_chain + var.sqrt() * noise
         return zs
 
     def guide_restoration(self, model, xts, zs, cfg_scale=1.5, noise_scale=0.5):

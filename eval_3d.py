@@ -20,9 +20,9 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 10
+    args.batch_size = 30
     args.image_size = 128
 
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -40,7 +40,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.2, 0.81, 0.01)]
+    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.81, 0.01)]
     # num_volumes = args.batch_size * len(dataloader)
     dice_scores_mask = {i: [] for i in threshold_test}
     #my_resize = transforms.Resize(128, antialias=True)
@@ -86,7 +86,7 @@ def main():
                 #xts, zs = diffusion.my_inversion_pred(model, image[:, :, :, :, j], timestemp=num_steps)
                 # xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=50)
                 # xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
-                zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=10)
+                zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=50)
 
                 my_mean = torch.mean(zs, dim=1)
                 #my_mean = my_resize(my_mean)
