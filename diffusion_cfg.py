@@ -50,13 +50,15 @@ class Diffusion:
         betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
         return torch.clip(betas, 0.0001, 0.9999)
 
-    def noise_images(self, x, t, coarse=False):
+    def noise_images(self, x, t, coarse=False, pyramid = False):
         sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None, None]
         sqrt_one_minus_alpha_hat = torch.sqrt(1 - self.alpha_hat[t])[
             :, None, None, None
         ]
         if coarse == True:
             noise = coarse_noise(x.shape[0], x.shape[1], x.device)
+        elif pyramid == True:
+            noise = pyramid_noise_like(x.shape[0],x.shape[1],x.device)
         else:
             noise = torch.randn_like(x)
         return sqrt_alpha_hat * x + sqrt_one_minus_alpha_hat * noise, noise
@@ -91,13 +93,15 @@ class Diffusion:
         )
 
     def sample(
-        self, model, n, labels, channels, cfg_scale=3, coarse=False
+        self, model, n, labels, channels, cfg_scale=3, coarse=False, pyramid = False
     ):  # cfg scale determines the influence of the conditional model
         logging.info(f"Sampling {n} new images....")
         model.eval()
         with torch.no_grad():
             if coarse == True:
                 x = coarse_noise(n, channels, self.device)
+            elif pyramid == True:
+                x = pyramid_noise_like(n,channels,self.device)
             else:
                 x = torch.randn((n, channels, self.img_size, self.img_size)).to(
                     self.device
@@ -113,7 +117,9 @@ class Diffusion:
                 beta = self.beta[t][:, None, None, None]
                 if i > 1:
                     if coarse == True:
-                        noise = torch.zeros_like(x)
+                        noise = coarse_noise(n, channels, self.device)
+                    elif pyramid == True:
+                        noise = pyramid_noise_like(n,channels,self.device)
                     else:
                         noise = torch.randn_like(x)
                 else:
@@ -552,7 +558,7 @@ def train(args):
             t = diffusion.sample_timesteps(images.shape[0]).to(
                 device
             )  # every picture gets one timestep in one epoch
-            x_t, noise = diffusion.noise_images(images, t)
+            x_t, noise = diffusion.noise_images(images, t, pyramid=True)
             # if np.random.random() < 0.1:
             #    labels = None
             # predicted_noise = model(x_t, t, labels)
@@ -581,7 +587,7 @@ def train(args):
                 os.path.join("models", args.run_name, f"{epoch}_optim.pt"),
             )
             ema_sampled_images = diffusion.sample(
-                ema_model, n=n, labels=labels, channels=args.channels, cfg_scale=0
+                ema_model, n=n, labels=labels, channels=args.channels, cfg_scale=0, pyramid=True
             )
             save_images(
                 ema_sampled_images,
@@ -599,7 +605,7 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "Brats128_model2_2"
+    args.run_name = "Brats128_pyramid"
     args.epochs = 321
     args.batch_size = 128
     args.image_size = 128

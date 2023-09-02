@@ -302,6 +302,20 @@ def coarse_noise(n, channels, device, noise_size=16, noise_std=0.2, image_size=6
     return noise
 
 
+def pyramid_noise_like(n, channels, device, image_size=128, discount=0.8):
+  u = transforms.Resize(image_size, antialias=True)
+  noise = torch.randn((n, channels, image_size, image_size)).to(device)
+  w = image_size
+  h = image_size
+  for i in range(10):
+    r = random.random()*2+2 # Rather than always going 2x, 
+    w, h = max(1, int(w/(r**i))), max(1, int(h/(r**i)))
+    noise += u(torch.randn(n, channels, w, h).to(device)) * discount**i
+    if w==1 or h==1: break # Lowest resolution is 1x1
+  return noise/noise.std() # Scaled back to roughly unit variance
+
+
+
 def Brats21(args, preload=False, eval=False, hist=False):
     if eval == True:
         my_transforms = transforms.Compose(
