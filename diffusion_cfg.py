@@ -43,9 +43,9 @@ class Diffusion:
         return torch.linspace(beta_start, beta_end, self.noise_steps)
 
     def cosine_beta_schedule(self, s=0.008):
-        steps = self.nosie_steps + 1
+        steps = self.noise_steps + 1
         x = torch.linspace(0, self.noise_steps, steps)
-        alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
+        alphas_cumprod = torch.cos(((x / self.noise_steps) + s) / (1 + s) * torch.pi * 0.5) ** 2
         alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
         betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
         return torch.clip(betas, 0.0001, 0.9999)
@@ -171,12 +171,8 @@ class Diffusion:
                 wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
                 mean = w0 * images + wt * xts[:, i + 1]
                 # normal implementation does not work for our purpose. Using the variance instead of std does way better
-                var = (
-                    beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
-                )  # this is option 2
-                xts[:, i] = mean + var * torch.rand_like(
-                    images
-                )  # option one is just var = beta
+                var = (beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat))  # this is option 2
+                xts[:, i] = mean + var * torch.rand_like(images)  # option one is just var = beta
             xts[:, 0] = images
             # generate the latents
             for i in tqdm(reversed(range(1, timestemp)), position=0):
@@ -256,6 +252,15 @@ class Diffusion:
                     images.shape[3],
                 )
             ).to(self.device)
+            noises = torch.zeros(
+                (
+                    num_images,
+                    timestemp,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
             zs = torch.zeros(
                 (
                     num_images,
@@ -269,13 +274,16 @@ class Diffusion:
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 x_t, noise = self.noise_images(images, t, pyramid=True)
                 xts[:, i] = x_t
+                noises[:,i] = noise
             xts[:, 0] = images
+            noises[:,0] = torch.zeros_like(images)
 
             # generate the latents
             for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
                 x_t = xts[:, i]
+                true_noise = noises[:,i]
                 predicted_noise = model(x_t, t)
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                 beta = self.beta[t][:, None, None, None]
@@ -283,10 +291,10 @@ class Diffusion:
                 alpha_hat = self.alpha_hat[t][:, None, None, None]
                 alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
                 # this follows the mu calculation of ddpm_mu_t_2 given as eq 7 in DDPM paper
-                w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
-                wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
-                mean = w0 * images + wt * x_t
-                var = (beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat))
+                #w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
+                #wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
+                #mean = w0 * images + wt * x_t
+                mean = self.ddpm_mu_t(x_t,true_noise,t)
                 # what was supposed to be predicted and what is predicted
                 z_t = mean - mu_t #/ torch.sqrt(beta)
                 zs[:, i - 1] = z_t
