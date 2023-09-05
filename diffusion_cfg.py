@@ -29,8 +29,8 @@ class Diffusion:
     def __init__(self, noise_steps=1000, img_size=128, device="cuda"):
         self.noise_steps = noise_steps
 
-        #self.beta = self.linear_noise_schedule().to(device)
-        self.beta = self.cosine_beta_schedule().to(device)
+        self.beta = self.linear_noise_schedule().to(device)
+        #self.beta = self.cosine_beta_schedule().to(device)
         self.alpha = 1.0 - self.beta
         self.alpha_hat = torch.cumprod(self.alpha, dim=0)
 
@@ -325,44 +325,23 @@ class Diffusion:
                     images.shape[3],
                 )
             ).to(self.device)
+            noise = torch.randn_like(images)
             for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t, noise = self.noise_images(images, t)
-                xts[:, i] = x_t
+                sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None, None]
+                sqrt_one_minus_alpha_hat = torch.sqrt(1 - self.alpha_hat[t])[:, None, None, None]
+                xts[:, i] = sqrt_alpha_hat * images + sqrt_one_minus_alpha_hat * noise
             xts[:, 0] = images
-            # generate the latents
-            correct_chain = xts[:, -1]
-            predcited_chain = xts[:, -1]
-            t = (torch.ones(num_images) * timestemp - 1).long().to(self.device)
-            current_scale = self.beta[t][:, None, None, None]
+            chain = xts[:,-1]
             for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
-                predicted_noise = model(predcited_chain, t)
-                mu_t = self.ddpm_mu_t(predcited_chain, predicted_noise, t)
-                beta = self.beta[t][:, None, None, None]
-                alpha = self.alpha[t][:, None, None, None]
-                alpha_hat = self.alpha_hat[t][:, None, None, None]
-                alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
-                # this follows the mu calculation of ddpm_mu_t_2 given as eq 7 in DDPM paper
-                w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
-                wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
-                mean = w0 * images + wt * correct_chain
-                correct_chain = mean
-                predcited_chain = mu_t
-                current_scale = current_scale + beta
+                predicted_noise = model(chain, t)
+                mu_t = self.ddpm_mu_t(chain, predicted_noise, t)
+                chain = mu_t
                 if i % skip == 0 or i == 1:
-                    if i != 1:
-                        z_t = (correct_chain - predcited_chain) / torch.sqrt(
-                            current_scale
-                        )
-                        zs[:, int(i / skip)] = z_t
-                        predcited_chain = xts[:, i - 1]
-                        correct_chain = xts[:, i - 1]
-                        current_scale = self.beta[t_m1][:, None, None, None]
-                    else:
-                        z_t = (xts[:, 0] - predcited_chain) / torch.sqrt(current_scale)
-                        zs[:, 0] = z_t
+                    z_t = (xts[:, i - 1] - chain)
+                    zs[:, int(i / skip)] = z_t
+                    chain = xts[:, i - 1]
         return xts, zs
 
     def skip_inversion_ind(self, model, images, timestemp=None, skip=5):
@@ -444,7 +423,7 @@ class Diffusion:
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
                 predicted_noise = model(predicted_chain, t)
-                mu_t = self.ddpm_mu_t_2(predicted_chain, predicted_noise, t)
+                mu_t = self.ddpm_mu_t(predicted_chain, predicted_noise, t)
                 beta = self.beta[t][:, None, None, None]
                 alpha = self.alpha[t][:, None, None, None]
                 alpha_hat = self.alpha_hat[t][:, None, None, None]
