@@ -26,10 +26,11 @@ logging.basicConfig(format="%(message)s", level=logging.INFO)
 
 
 class Diffusion:
-    def __init__(self, noise_steps=1000, img_size=64, device="cuda"):
+    def __init__(self, noise_steps=1000, img_size=128, device="cuda"):
         self.noise_steps = noise_steps
 
-        self.beta = self.linear_noise_schedule().to(device)
+        #self.beta = self.linear_noise_schedule().to(device)
+        self.beta = self.cosine_beta_schedule().to(device)
         self.alpha = 1.0 - self.beta
         self.alpha_hat = torch.cumprod(self.alpha, dim=0)
 
@@ -42,10 +43,9 @@ class Diffusion:
         return torch.linspace(beta_start, beta_end, self.noise_steps)
 
     def cosine_beta_schedule(self, s=0.008):
-        x = torch.linspace(1, self.noise_steps)
-        alphas_cumprod = (
-            torch.cos(((x / self.noise_steps) + s) / (1 + s) * torch.pi * 0.5) ** 2
-        )
+        steps = self.nosie_steps + 1
+        x = torch.linspace(0, self.noise_steps, steps)
+        alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
         alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
         betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
         return torch.clip(betas, 0.0001, 0.9999)
@@ -267,7 +267,7 @@ class Diffusion:
             ).to(self.device)
             for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t, noise = self.noise_images(images, t)
+                x_t, noise = self.noise_images(images, t, pyramid=True)
                 xts[:, i] = x_t
             xts[:, 0] = images
 
@@ -286,8 +286,9 @@ class Diffusion:
                 w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
                 wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
                 mean = w0 * images + wt * x_t
+                var = (beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat))
                 # what was supposed to be predicted and what is predicted
-                z_t = (mean - mu_t) #/ torch.sqrt(beta)
+                z_t = mean - mu_t #/ torch.sqrt(beta)
                 zs[:, i - 1] = z_t
         return xts, zs
 
@@ -426,7 +427,7 @@ class Diffusion:
             ).to(self.device)
 
             t = (torch.ones(num_images) * timestemp - 1).long().to(self.device)
-            x_t, noise = self.noise_images(images, t)
+            x_t, noise = self.noise_images(images, t, pyramid=True)
             # generate the latents
             correct_chain = x_t
             predicted_chain = x_t
@@ -572,7 +573,7 @@ def train(args):
             ema.step_ema(ema_model, model)
             wandb.log({"MSE": loss.item()})
 
-        if epoch > 200 and epoch % 16 == 0 and accelerator.is_main_process:
+        if epoch > 200 and epoch % 8 == 0 and accelerator.is_main_process:
             my_model = accelerator.unwrap_model(model)
             my_ema_model = accelerator.unwrap_model(ema_model)
             # labels = torch.arange(args.num_classes).long().to(device)
@@ -605,7 +606,7 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "Brats128_pyramid"
+    args.run_name = "Brats128_p_cos"
     args.epochs = 321
     args.batch_size = 128
     args.image_size = 128
@@ -614,19 +615,19 @@ def main():
         "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     )
     #args.dataset_path = './data/BraTS20/BraTS20_Training'
-    args.start_lr = 2e-5
-    args.target_lr = 1e-4
+    args.start_lr = 1e-5
+    args.target_lr = 9e-5
     args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_train.csv"
     #args.path_to_csv = './data/BraTS20/healthy_slices_small.csv'
     args.train_continue = False
     args.current_model = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128/256_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_ckpt.pt"
     )
     args.current_ema = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128/256_ema_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_ema_ckpt.pt"
     )
     args.current_opt = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128/256_optim.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_optim.pt"
     )
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
