@@ -120,11 +120,11 @@ class DoubleConv(nn.Module):
         if not mid_channels:
             mid_channels = out_channels
         self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False),
-            nn.GroupNorm(1, mid_channels),
-            nn.GELU(),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
             nn.GroupNorm(1, out_channels),
+            #nn.GELU(),
+            #nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            #nn.GroupNorm(1, out_channels),
         )
 
     def forward(self, x):
@@ -161,7 +161,7 @@ class Up(nn.Module):
         self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
         self.conv = nn.Sequential(
             DoubleConv(in_channels, in_channels, residual=True),
-            DoubleConv(in_channels, out_channels, in_channels // 2),
+            DoubleConv(in_channels, out_channels),
         )
 
         self.emb_layer = nn.Sequential(
@@ -182,7 +182,8 @@ class UNet(nn.Module):
         super().__init__()
         self.device = device
         self.time_dim = time_dim
-        self.inc = DoubleConv(c_in, 32, residual=True)  # c_in, c_out
+        self.inc = DoubleConv(c_in, 32)  # c_in, c_out
+        self.inc2 = DoubleConv(32,32,residual=True)
         self.down1 = Down(32, 64)
         self.down2 = Down(64, 128)  # c_in, c_out
         self.sa1 = SelfAttention(128, int(img_size / 4))  # c_in, image_size
@@ -191,9 +192,9 @@ class UNet(nn.Module):
         self.down4 = Down(256, 256)
         self.sa3 = SelfAttention(256, int(img_size / 16))
 
-        #self.bot1 = DoubleConv(256, 512)
-        self.bot = DoubleConv(256, 256)
-        #self.bot3 = DoubleConv(512, 256)
+        self.bot1 = DoubleConv(256, 512)
+        #self.bot = DoubleConv(256, 256)
+        self.bot3 = DoubleConv(512, 256)
 
         self.sa4 = SelfAttention(256,int(img_size / 16))
         self.up1 = Up(512, 128)
@@ -216,7 +217,7 @@ class UNet(nn.Module):
 
     def unet_forward(self, x, t):
         x1 = self.inc(x)
-        #x1 = self.inc2(x1)
+        x1 = self.inc2(x1)
         x2 = self.down1(x1, t)
         x3 = self.down2(x2, t)
         x3 = self.sa1(x3)
@@ -225,9 +226,9 @@ class UNet(nn.Module):
         x5 = self.down4(x4, t)
         x5 = self.sa3(x5)
 
-        #x5 = self.bot1(x5)
-        x5 = self.bot(x5)
-        #x5 = self.bot3(x5)
+        x5 = self.bot1(x5)
+        #x5 = self.bot(x5)
+        x5 = self.bot3(x5)
 
         x = self.sa4(x5)
         x = self.up1(x, x4, t)
