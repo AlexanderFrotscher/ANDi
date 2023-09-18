@@ -62,34 +62,34 @@ def main():
             .to("cpu")
         )
         for i, (image, label) in enumerate(pbar):
-            all_img, all_labels = accelerator.gather_for_metrics((image, label))
-            my_labels = torch.cat((my_labels, all_labels.to("cpu")), dim=0)
             tmp_volume = torch.zeros(
                 (
-                    all_img.shape[0],
+                    image.shape[0],
                     128,
                     128,
-                    all_img.shape[4],
+                    image.shape[4],
                 )
             ).to(device)
-            for j in range(all_img.shape[4]):
-                my_img = model(all_img[:,:,:,:,j])
-                mask = all_img[:,:,:,:,j].sum(dim=1, keepdim=True) > 0.01
+            for j in range(image.shape[4]):
+                my_img = model(image[:,:,:,:,j])
+                mask = image[:,:,:,:,j].sum(dim=1, keepdim=True) > 0.01
                 # Erode the mask a bit to remove some of the reconstruction errors at the edges.
                 mask = (F.avg_pool2d(mask.float(), kernel_size=5, stride=1, padding=2) > 0.95)
 
-                my_diff = ((all_img[:,:,:,:,j] - my_img) * mask) #.abs().mean(dim=1)
+                my_diff = ((image[:,:,:,:,j] - my_img) * mask) #.abs().mean(dim=1)
                 my_diff = (my_diff[:,0] + my_diff[:,3]) * 0.5
                 #my_diff = median_filter_2D(my_diff)
                 #my_diff = my_diff[:,0]
                 tmp_volume[:, :, :, j] = my_diff
 
+            tmp_volume, tmp_labels = accelerator.gather_for_metrics((tmp_volume,label))
+            my_labels = torch.cat((my_labels, tmp_labels.to("cpu")), dim=0)
             my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)
         if accelerator.is_main_process:
-            my_labels = my_labels[1:].contiguous()
+            my_labels = my_labels.contiguous()
             my_volume = median_filter_3D(my_volume)
             #my_volume = norm_tensor(my_volume)
-            my_mask = my_volume[1:].contiguous()
+            my_mask = my_volume.contiguous()
             aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
             for key in dice_scores_mask:
                 segmentation = torch.where(my_mask > key, 1.0, 0.0)
