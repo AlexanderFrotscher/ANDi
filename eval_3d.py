@@ -22,7 +22,7 @@ def main():
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
     args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_train.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 20
+    args.batch_size = 30
     args.image_size = 128
 
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -81,7 +81,7 @@ def main():
                     128,
                     all_img.shape[4],
                 )
-            ).to(device)
+            ).to("cpu")
             for j in range(all_img.shape[4]):
                 #xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
                 #xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
@@ -93,9 +93,10 @@ def main():
                 my_mean = torch.mean(zs, dim=1)
                 #my_mean = my_resize(my_mean)
                 #my_mean = median_filter_2D(my_mean)
-                tmp_volume[:, :, :, :, j] = my_mean
+                tmp_volume[:, :, :, :, j] = my_mean.to("cpu")
             #tmp_volume[image == -1] = 0
-            my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)
+            
+            my_volume = torch.cat((my_volume, tmp_volume), dim=0)
         if accelerator.is_main_process:
             my_mask = (my_volume[:,0]+my_volume[:,3]) * 0.5
             my_mask = median_filter_3D(my_mask)
