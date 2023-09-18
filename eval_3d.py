@@ -20,9 +20,9 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_train.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 30
+    args.batch_size = 3
     args.image_size = 128
 
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -69,23 +69,22 @@ def main():
             .to("cpu")
         )
         for i, (image, label) in enumerate(pbar):
-            all_img, all_labels = accelerator.gather_for_metrics((image, label))
-            all_img = (all_img * 2) - 1
+            image= (image * 2) - 1
             num_steps = 500
-            my_labels = torch.cat((my_labels, all_labels.to("cpu")), dim=0)
+            my_labels = torch.cat((my_labels, label.to("cpu")), dim=0)
             tmp_volume = torch.zeros(
                 (
-                    all_img.shape[0],
-                    all_img.shape[1],
+                    image.shape[0],
+                    image.shape[1],
                     128,
                     128,
-                    all_img.shape[4],
+                    image.shape[4],
                 )
             ).to("cpu")
-            for j in range(all_img.shape[4]):
+            for j in range(image.shape[4]):
                 #xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
                 #xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
-                xts, zs = diffusion.my_inversion_pred(model, all_img[:, :, :, :, j], timestemp=num_steps)
+                xts, zs = diffusion.my_inversion_pred(model, image[:, :, :, :, j], timestemp=num_steps)
                 #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
                 #xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=25)
                 #zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=10)
@@ -98,6 +97,8 @@ def main():
             
             my_volume = torch.cat((my_volume, tmp_volume), dim=0)
         if accelerator.is_main_process:
+            my_volume, my_labels = accelerator.gather_for_metrics(my_volume,my_labels)
+            print(my_volume.shape[0])
             my_mask = (my_volume[:,0]+my_volume[:,3]) * 0.5
             my_mask = median_filter_3D(my_mask)
             my_labels = my_labels[1:].contiguous()
