@@ -20,9 +20,9 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_train.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 10
+    args.batch_size = 20
     args.image_size = 128
 
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -30,11 +30,12 @@ def main():
     device = accelerator.device
     model = UNet().to(device=device)
     ckpt = torch.load(
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/360_ema_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_p_full/232_ema_ckpt.pt"
      )
     #ckpt = torch.load("./models/trained_models/final_no_flip/80_ema_ckpt.pt")
     # ckpt = torch.load("./models/trained_models/over_trained/248_ema_ckpt.pt")
     model.load_state_dict(ckpt)
+    #model = torch.compile(model)
     diffusion = Diffusion(noise_steps=1000, img_size=128, device=device)
     dataloader = Brats_Volume(args, hist=False)
 
@@ -82,10 +83,10 @@ def main():
             ).to(device)
             for j in range(image.shape[4]):
                 #xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
-                # xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
+                #xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
                 xts, zs = diffusion.my_inversion_pred(model, image[:, :, :, :, j], timestemp=num_steps)
-                # xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=50)
-                # xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=10)
+                #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
+                #xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=25)
                 #zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=10)
 
                 my_mean = torch.mean(zs, dim=1)

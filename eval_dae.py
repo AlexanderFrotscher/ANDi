@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_big.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
     args.batch_size = 20
     args.image_size = 128
@@ -37,7 +37,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_diff = [x / 1000 for x in range(1, 1000)]
+    threshold_diff = [x / 1000 for x in range(1, 500)]
     dice_scores_mask = {i: [] for i in threshold_diff}
     model.eval()
     with torch.no_grad():
@@ -62,22 +62,23 @@ def main():
             .to("cpu")
         )
         for i, (image, label) in enumerate(pbar):
-            my_labels = torch.cat((my_labels, label.to("cpu")), dim=0)
+            all_img, all_labels = accelerator.gather_for_metrics((image, label))
+            my_labels = torch.cat((my_labels, all_labels.to("cpu")), dim=0)
             tmp_volume = torch.zeros(
                 (
-                    image.shape[0],
+                    all_img.shape[0],
                     128,
                     128,
-                    image.shape[4],
+                    all_img.shape[4],
                 )
             ).to(device)
-            for j in range(image.shape[4]):
-                my_img = model(image[:,:,:,:,j])
-                mask = image[:,:,:,:,j].sum(dim=1, keepdim=True) > 0.01
+            for j in range(all_img.shape[4]):
+                my_img = model(all_img[:,:,:,:,j])
+                mask = all_img[:,:,:,:,j].sum(dim=1, keepdim=True) > 0.01
                 # Erode the mask a bit to remove some of the reconstruction errors at the edges.
                 mask = (F.avg_pool2d(mask.float(), kernel_size=5, stride=1, padding=2) > 0.95)
 
-                my_diff = ((image[:,:,:,:,j] - my_img) * mask) #.abs() #.mean(dim=1)
+                my_diff = ((all_img[:,:,:,:,j] - my_img) * mask) #.abs().mean(dim=1)
                 my_diff = (my_diff[:,0] + my_diff[:,3]) * 0.5
                 #my_diff = median_filter_2D(my_diff)
                 #my_diff = my_diff[:,0]
@@ -90,6 +91,7 @@ def main():
         my_mask = my_volume[1:].contiguous()
         aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
         for key in dice_scores_mask:
+            print(key)
             segmentation = torch.where(my_mask > key, 1.0, 0.0)
             segmentation = segmentation.type(torch.bool)
             dice_scores_mask[key].extend([dice(segmentation, my_labels)])
