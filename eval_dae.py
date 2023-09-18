@@ -85,21 +85,21 @@ def main():
                 tmp_volume[:, :, :, j] = my_diff
 
             my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)
-        my_labels = my_labels[1:].contiguous()
-        my_volume = median_filter_3D(my_volume)
-        #my_volume = norm_tensor(my_volume)
-        my_mask = my_volume[1:].contiguous()
-        aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
-        for key in dice_scores_mask:
-            print(key)
-            segmentation = torch.where(my_mask > key, 1.0, 0.0)
-            segmentation = segmentation.type(torch.bool)
-            dice_scores_mask[key].extend([dice(segmentation, my_labels)])
+        if accelerator.is_main_process:
+            my_labels = my_labels[1:].contiguous()
+            my_volume = median_filter_3D(my_volume)
+            #my_volume = norm_tensor(my_volume)
+            my_mask = my_volume[1:].contiguous()
+            aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
+            for key in dice_scores_mask:
+                segmentation = torch.where(my_mask > key, 1.0, 0.0)
+                segmentation = segmentation.type(torch.bool)
+                dice_scores_mask[key].extend([dice(segmentation, my_labels)])
 
-        dice_scores_mask[f"AUPRC"] = aupr
-        df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
-        df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/dae_result.csv")
-        # df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
+            dice_scores_mask[f"AUPRC"] = aupr
+            df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
+            df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/dae_result.csv")
+            # df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
 
 
 def median_filter_2D(volume, kernelsize=5):

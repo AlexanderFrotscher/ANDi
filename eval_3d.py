@@ -69,22 +69,23 @@ def main():
             .to("cpu")
         )
         for i, (image, label) in enumerate(pbar):
-            image = (image * 2) - 1
+            all_img, all_labels = accelerator.gather_for_metrics((image, label))
+            all_img = (all_img * 2) - 1
             num_steps = 500
-            my_labels = torch.cat((my_labels, label.to("cpu")), dim=0)
+            my_labels = torch.cat((my_labels, all_labels.to("cpu")), dim=0)
             tmp_volume = torch.zeros(
                 (
-                    image.shape[0],
-                    image.shape[1],
+                    all_img.shape[0],
+                    all_img.shape[1],
                     128,
                     128,
-                    image.shape[4],
+                    all_img.shape[4],
                 )
             ).to(device)
-            for j in range(image.shape[4]):
+            for j in range(all_img.shape[4]):
                 #xts, zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
                 #xts, zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
-                xts, zs = diffusion.my_inversion_pred(model, image[:, :, :, :, j], timestemp=num_steps)
+                xts, zs = diffusion.my_inversion_pred(model, all_img[:, :, :, :, j], timestemp=num_steps)
                 #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
                 #xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=25)
                 #zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=10)
@@ -95,21 +96,22 @@ def main():
                 tmp_volume[:, :, :, :, j] = my_mean
             #tmp_volume[image == -1] = 0
             my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)
-        my_mask = (my_volume[:,0]+my_volume[:,3]) * 0.5
-        my_mask = median_filter_3D(my_mask)
-        my_labels = my_labels[1:].contiguous()
-        my_mask = norm_tensor(my_mask)
-        my_mask = my_mask[1:].contiguous()
-        aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
-        for key in dice_scores_mask:
-            segmentation = torch.where(my_mask > key, 1.0, 0.0)
-            segmentation = segmentation.type(torch.bool)
-            dice_scores_mask[key].extend([dice(segmentation, my_labels)])
+        if accelerator.is_main_process:
+            my_mask = (my_volume[:,0]+my_volume[:,3]) * 0.5
+            my_mask = median_filter_3D(my_mask)
+            my_labels = my_labels[1:].contiguous()
+            my_mask = norm_tensor(my_mask)
+            my_mask = my_mask[1:].contiguous()
+            aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
+            for key in dice_scores_mask:
+                segmentation = torch.where(my_mask > key, 1.0, 0.0)
+                segmentation = segmentation.type(torch.bool)
+                dice_scores_mask[key].extend([dice(segmentation, my_labels)])
 
-        dice_scores_mask[f"AUPRC"] = aupr
-        df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
-        df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_3D.csv")
-        # df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
+            dice_scores_mask[f"AUPRC"] = aupr
+            df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
+            df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_3D.csv")
+            # df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
 
 
 def create_mask(zs, steps, images):
