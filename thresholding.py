@@ -25,7 +25,7 @@ def main():
         "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     )
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_test.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_01.csv"
     args.image_size = 128
     device = 'cpu'
@@ -43,11 +43,13 @@ def main():
     for i, (image, label) in enumerate(pbar):
         image = image.to(device)
         label = label.to(device)
-        test = (image[:,0] + image[:,3])*0.5
+        #test = (image[:,0] + image[:,3])*0.5
+        test = image[:,0].contiguous()
         aupr = average_precision_score(label.view(-1), test.view(-1))
         my_auprs['aupr no post'].extend([aupr])
         for key in dice_scores_mask:
-            test = (image[:,0] + image[:,3])*0.5
+            #test = (image[:,0] + image[:,3])*0.5
+            test = image[:,0]
             my_mask = torch.where(test > key, 1.0, 0.0)
             my_mask = my_mask.type(torch.bool).to(device)
             dice_scores_mask[key].extend([dice(my_mask, label)])
@@ -58,7 +60,8 @@ def main():
     for i, (image, label) in enumerate(pbar):
         image = image.to(device)
         label = label.to(device)
-        test = (image[:,0] + image[:,3])*0.5
+        #test = (image[:,0] + image[:,3])*0.5
+        test = image[:,0]
         my_mask = median_filter_3D(test)
         #my_mask = connected_components_3d(my_mask)
         my_mask = my_mask.contiguous()

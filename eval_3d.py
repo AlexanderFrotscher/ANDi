@@ -20,9 +20,9 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_test.csv"
+    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
     #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 20
+    args.batch_size = 10
     args.image_size = 128
 
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -30,7 +30,7 @@ def main():
     device = accelerator.device
     model = UNet().to(device=device)
     ckpt = torch.load(
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_p_full/232_ema_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_full/232_ema_ckpt.pt"
      )
     #ckpt = torch.load("./models/trained_models/final_no_flip/80_ema_ckpt.pt")
     # ckpt = torch.load("./models/trained_models/over_trained/248_ema_ckpt.pt")
@@ -87,6 +87,7 @@ def main():
                 #xts, zs = diffusion.skip_inversion(model,image[:,:,:,:,j], timestemp=num_steps,skip=25)
                 #xts , zs = diffusion.skip_inversion_ind(model,image[:,:,:,:,j], timestemp=num_steps, skip=25)
                 #zs = diffusion.skip_inversion_dep(model, image[:,:,:,:,j], timestemp=num_steps, skip=10)
+                #xts, zs = diffusion.pure_noise_com(model,image[:,:,:,:,j], timestemp=num_steps)
 
                 my_mean = torch.mean(zs, dim=1)
                 #my_mean = my_resize(my_mean)
@@ -97,7 +98,9 @@ def main():
             my_labels = torch.cat((my_labels, tmp_labels.to("cpu")), dim=0)
             my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)
         if accelerator.is_main_process:
-            my_mask = (my_volume[:,0]+my_volume[:,3]) * 0.5
+            #print(my_volume.shape[0])
+            #my_mask = (my_volume[:,0]+my_volume[:,3]) * 0.5
+            my_mask = torch.max(my_volume,dim=1)
             my_mask = median_filter_3D(my_mask)
             my_labels = my_labels.contiguous()
             my_mask = norm_tensor(my_mask)

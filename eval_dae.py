@@ -37,7 +37,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_diff = [x / 1000 for x in range(1, 500)]
+    threshold_diff = [x / 1000 for x in range(1, 100)]
     dice_scores_mask = {i: [] for i in threshold_diff}
     model.eval()
     with torch.no_grad():
