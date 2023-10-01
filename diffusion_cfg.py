@@ -181,7 +181,7 @@ class Diffusion:
                 # var = beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
                 z_t = (x_tm1 - mu_t) #/ torch.sqrt(var)
                 zs[:, i - 1] = z_t
-        return xts, zs
+        return zs
 
     def dpm_inversion(self, model, images, scaling=None, timestemp=None):
         if timestemp is None:
@@ -226,7 +226,7 @@ class Diffusion:
                 scale_t = scaling[t][:, None, None, None]
                 z_t = (x_tm1 - mu_t) #/ torch.sqrt(scale_t)
                 zs[:, i - 1] = z_t
-        return xts, zs
+        return zs
 
     def dpm_differences(self, model, images, timestemp=None):
         if timestemp is None:
@@ -281,7 +281,7 @@ class Diffusion:
                 # what was supposed to be predicted and what is predicted
                 z_t = (mean - mu_t).abs()
                 zs[:, i - 1] = z_t
-        return xts, zs
+        return zs
 
     
     def skip_differences(self, model, images, timestemp=None, skip=25):
@@ -342,7 +342,7 @@ class Diffusion:
                     else:
                         z_t = (images - predcited_chain).abs()
                         zs[:, 0] = z_t
-        return xts, zs
+        return zs
 
     def differences_noise(self, model, images, timestemp=None):
         if timestemp is None:
@@ -454,8 +454,7 @@ def train(args):
         model.parameters(), lr=1
     )  # scheduler multiplies base lr of optimizer -> lr = 1
 
-    #mse = nn.MSELoss()
-    mse = nn.L1Loss()
+    mse = nn.MSELoss()
     diffusion = Diffusion(img_size=args.image_size, device=device)
     ema = EMA(0.995)
     ema_model = copy.deepcopy(model).eval().requires_grad_(False)

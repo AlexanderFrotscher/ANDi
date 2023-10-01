@@ -182,8 +182,8 @@ class UNet(nn.Module):
         super().__init__()
         self.device = device
         self.time_dim = time_dim
-        self.inc = DoubleConv(c_in, c_in, residual=True)  # c_in, c_out
-        self.inc2 = DoubleConv(c_in, 32)
+        self.inc = DoubleConv(c_in, 32)  # c_in, c_out
+        self.inc2 = DoubleConv(32, 32, residual=True)
         self.down1 = Down(32, 64)
         self.down2 = Down(64, 128)  # c_in, c_out
         self.sa1 = SelfAttention(128, int(img_size / 4))  # c_in, image_size
