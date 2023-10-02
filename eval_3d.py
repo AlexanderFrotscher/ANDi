@@ -63,13 +63,14 @@ def main():
             .to("cpu")
         )
         for i, (image, label) in enumerate(pbar):
-            image= (image * 2) - 1
+            image, label = accelerator.gather_for_metrics((image,label))
+            image = (image * 2) - 1
             num_steps = 500
             num_volumes = image.shape[0]
             num_slices = image.shape[4]
 
-            image = torch.moveaxis(image,4,1)
-            image = torch.reshape(image,(image.shape[0]*image.shape[1],image.shape[2],image.shape[3],image.shape[4]))
+            image = torch.permute(image,(0,4,1,2,3))
+            image = image.view(-1,image.shape[2],image.shape[3],image.shape[4])
         
             #zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
             #zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
@@ -77,12 +78,11 @@ def main():
             zs = diffusion.differences_noise(model, image, timestemp=num_steps)
 
             my_mean = torch.mean(zs, dim=1)
-            my_mean = torch.reshape(my_mean,(num_volumes,num_slices,my_mean.shape[1],my_mean.shape[2],my_mean.shape[3]))
-            my_mean = torch.moveaxis(my_mean,1,4)
+            my_mean = my_mean.view(num_volumes,num_slices,my_mean.shape[1],my_mean.shape[2],my_mean.shape[3])
+            my_mean = torch.permute(my_mean,(0,2,3,4,1))
 
 
-            my_mean, tmp_labels = accelerator.gather_for_metrics((my_mean,label))
-            my_labels = torch.cat((my_labels, tmp_labels.to("cpu")), dim=0)
+            my_labels = torch.cat((my_labels, label.to("cpu")), dim=0)
             my_volume = torch.cat((my_volume, my_mean.to("cpu")), dim=0)
 
         if accelerator.is_main_process:
