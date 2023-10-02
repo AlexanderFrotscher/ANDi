@@ -204,14 +204,14 @@ class BratsDataVolume(Dataset):
 
         start_range = 0
         end_range = 155
-        volume = torch.zeros(end_range - start_range,
-            img.shape[0], self.image_size, self.image_size, 
+        volume = torch.zeros(
+            img.shape[0], self.image_size, self.image_size, end_range - start_range
         )
         my_mask = torch.zeros(128, 128, end_range - start_range)
         my_transform_1 = transforms.Resize(self.image_size, antialias=True)
         my_transform_2 = transforms.Resize(128, antialias=True)
         for i in range(start_range, end_range):
-            volume[i - start_range,:, :, :] = my_transform_1(img[None, :, :, :, i])
+            volume[:, :, :, i - start_range] = my_transform_1(img[None, :, :, :, i])
             my_mask[:, :, i - start_range] = my_transform_2(mask[None, None, :, :, i])
         my_mask[my_mask > 0.5] = 1
         my_mask[my_mask != 1] = 0

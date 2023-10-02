@@ -67,9 +67,9 @@ def main():
             image = (image * 2) - 1
             num_steps = 500
             num_volumes = image.shape[0]
-            num_slices = image.shape[1]
+            num_slices = image.shape[4]
 
-            #image = torch.permute(image,(0,4,1,2,3))
+            image = torch.permute(image,(0,4,1,2,3)).contiguous()
             image = image.view(-1,image.shape[2],image.shape[3],image.shape[4])
         
             #zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
@@ -77,7 +77,7 @@ def main():
             #zs = diffusion.dpm_differences(model, image[:, :, :, :, j], timestemp=num_steps)
             zs = diffusion.differences_noise(model, image, timestemp=num_steps)
 
-            my_mean = torch.mean(zs, dim=1)
+            my_mean = torch.mean(zs, dim=1).contiguous()
             my_mean = my_mean.view(num_volumes,num_slices,my_mean.shape[1],my_mean.shape[2],my_mean.shape[3])
             my_mean = torch.permute(my_mean,(0,2,3,4,1))
 
