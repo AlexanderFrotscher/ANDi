@@ -67,9 +67,9 @@ def main():
             image = (image * 2) - 1
             num_steps = 500
             num_volumes = image.shape[0]
-            num_slices = image.shape[4]
+            num_slices = image.shape[1]
 
-            image = torch.permute(image,(0,4,1,2,3))
+            #image = torch.permute(image,(0,4,1,2,3))
             image = image.view(-1,image.shape[2],image.shape[3],image.shape[4])
         
             #zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
