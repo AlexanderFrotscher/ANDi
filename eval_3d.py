@@ -77,10 +77,12 @@ def main():
             #zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
             #zs = diffusion.dpm_differences(model, image[:, :, :, :, j], timestemp=num_steps)
             zs1 = diffusion.differences_noise(model, split[0], timestemp=num_steps)
+            zs1 = zs1.to('cpu')
             zs2 = diffusion.differences_noise(model, split[1], timestemp=num_steps)
+            zs2 = zs2.to('cpu')
 
             zs = torch.cat((zs1,zs2),dim=0)
-            my_mean = torch.mean(zs, dim=1).contiguous()
+            my_mean = torch.mean(zs, dim=1)
             my_mean = my_mean.view(num_volumes,num_slices,my_mean.shape[1],my_mean.shape[2],my_mean.shape[3])
             my_mean = torch.permute(my_mean,(0,2,3,4,1))
 
