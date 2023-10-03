@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
     args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
     args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
-    args.batch_size = 10
+    args.batch_size = 1
     args.image_size = 128
 
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -69,14 +69,17 @@ def main():
             num_volumes = image.shape[0]
             num_slices = image.shape[4]
 
-            image = torch.permute(image,(0,4,1,2,3)).contiguous()
+            image = torch.permute(image,(0,4,1,2,3))
             image = image.view(-1,image.shape[2],image.shape[3],image.shape[4])
+            split = torch.split(image,[int(num_slices/2),int((num_slices+1)/2)])
         
             #zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
             #zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
             #zs = diffusion.dpm_differences(model, image[:, :, :, :, j], timestemp=num_steps)
-            zs = diffusion.differences_noise(model, image, timestemp=num_steps)
+            zs1 = diffusion.differences_noise(model, split[0], timestemp=num_steps)
+            zs2 = diffusion.differences_noise(model, split[1], timestemp=num_steps)
 
+            zs = torch.cat((zs1,zs2),dim=0)
             my_mean = torch.mean(zs, dim=1).contiguous()
             my_mean = my_mean.view(num_volumes,num_slices,my_mean.shape[1],my_mean.shape[2],my_mean.shape[3])
             my_mean = torch.permute(my_mean,(0,2,3,4,1))
