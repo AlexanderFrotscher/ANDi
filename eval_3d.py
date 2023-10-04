@@ -28,7 +28,7 @@ def main():
     device = accelerator.device
     model = UNet().to(device=device)
     ckpt = torch.load(
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_full/232_ema_ckpt.pt"
+        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_p_full/232_ema_ckpt.pt"
      )
     
     model.load_state_dict(ckpt)
@@ -73,12 +73,11 @@ def main():
             image = image.view(-1,image.shape[2],image.shape[3],image.shape[4])
             split = torch.split(image,[int(num_slices/2),int((num_slices+1)/2)])
         
-            #zs = diffusion.dpm_inversion(model, image[:, :, :, :, j], timestemp=num_steps)
-            #zs = diffusion.dpm_encoder(model,image[:,:,:,:,j], timestemp=num_steps)
-            #zs = diffusion.dpm_differences(model, image[:, :, :, :, j], timestemp=num_steps)
-            zs1 = diffusion.differences_noise(model, split[0], timestemp=num_steps)
+            zs1 = diffusion.dpm_differences(model, split[0], timestemp=num_steps)
+            #zs1 = diffusion.skip_differences(model, split[0], timestemp=num_steps,skip=25)
             zs1 = zs1.to('cpu')
-            zs2 = diffusion.differences_noise(model, split[1], timestemp=num_steps)
+            zs2 = diffusion.dpm_differences(model, split[1], timestemp=num_steps)
+            #zs2 = diffusion.skip_differences(model, split[1], timestemp=num_steps,skip=25)
             zs2 = zs2.to('cpu')
 
             zs = torch.cat((zs1,zs2),dim=0)
@@ -92,6 +91,7 @@ def main():
 
         if accelerator.is_main_process:
             my_mask = torch.max(my_volume,dim=1)[0]
+            #my_mask = (my_volume[:,0] + my_volume[:,3])*0.5
             my_mask = median_filter_3D(my_mask)
             my_labels = my_labels.contiguous()
             my_mask = norm_tensor(my_mask)

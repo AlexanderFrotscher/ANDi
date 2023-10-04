@@ -264,7 +264,7 @@ class Diffusion:
             ).to(self.device)
             for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t, noise = self.noise_images(images, t, pyramid=False)
+                x_t, noise = self.noise_images(images, t, pyramid=True)
                 xts[:, i] = x_t
                 noises[:,i] = noise
             xts[:, 0] = images
@@ -311,7 +311,7 @@ class Diffusion:
             ).to(self.device)
             for i in tqdm(reversed(range(1, timestemp)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t, noise = self.noise_images(images, t, pyramid=False)
+                x_t, noise = self.noise_images(images, t, pyramid=True)
                 xts[:, i] = x_t
 
             xts[:, 0] = images
