@@ -81,7 +81,8 @@ def main():
             zs2 = zs2.to('cpu')
 
             zs = torch.cat((zs1,zs2),dim=0)
-            my_mean = torch.mean(zs, dim=1)
+            #my_mean = torch.mean(zs, dim=1)
+            my_mean = gmean(zs, dim=1)
             my_mean = my_mean.view(num_volumes,num_slices,my_mean.shape[1],my_mean.shape[2],my_mean.shape[3])
             my_mean = torch.permute(my_mean,(0,2,3,4,1))
 
@@ -132,6 +133,10 @@ def norm_tensor(tensor):
     my_tensor = (tensor - my_min) / (my_max - my_min)
     return my_tensor
 
+
+def gmean(input_x, dim):
+    log_x = torch.log(input_x)
+    return torch.exp(torch.mean(log_x, dim=dim))
 
 if __name__ == "__main__":
     main()
