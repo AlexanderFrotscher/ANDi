@@ -67,22 +67,22 @@ class Diffusion:
             * (x - ((1 - alpha) / (torch.sqrt(1 - alpha_hat))) * predicted_noise)
         )
 
-    def ddpm_mu_t_2(self, x, predicted_noise, t):
+    def ddpm_mean_t(self, x, t, predicted_noise = None, x_0 = None):
+        if predicted_noise == None and x_0 == None:
+            print('Either noise or x_0 have to be given to calculate x_t-1.')
+            exit(1)
         alpha = self.alpha[t][:, None, None, None]
         alpha_hat = self.alpha_hat[t][:, None, None, None]
         beta = self.beta[t][:, None, None, None]
         alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
-        pred_x0 = (
-            1 / torch.sqrt(alpha_hat) * x
-            - torch.sqrt((1 - alpha_hat) / (alpha_hat)) * predicted_noise
-        )
-        pred_x0 = pred_x0.clamp(-1, 1)
-        #pred_x0 = clamp_to_spatial_quantile(pred_x0,0.99)
-        return (
-            (torch.sqrt(alpha_hat_minus_one) * beta) / (1 - alpha_hat)
-        ) * pred_x0 + (
-            (((1 - alpha_hat_minus_one) * torch.sqrt(alpha)) / (1 - alpha_hat)) * x
-        )
+        if x_0 == None:
+            pred_x0 = (1 / torch.sqrt(alpha_hat) * x - torch.sqrt((1 - alpha_hat) / (alpha_hat)) * predicted_noise)
+            #pred_x0 = pred_x0.clamp(-1, 1)
+            #pred_x0 = clamp_to_spatial_quantile(pred_x0,0.99)
+            x_0 = pred_x0
+        w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
+        wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
+        return w0 * x_0 + wt * x
 
     def sample(
         self, model, n, labels, channels, cfg_scale=3, coarse=False, pyramid = False
@@ -228,9 +228,11 @@ class Diffusion:
                 zs[:, i - 1] = z_t
         return zs
 
-    def dpm_differences(self, model, images, timestemp=None):
-        if timestemp is None:
-            timestemp = self.noise_steps
+    def dpm_differences(self, model, images, start = 100, stop=None, pyramid = False):
+        if stop == None:
+            stop = self.noise_steps
+        if start == 0:
+            start = 1
         num_images = images.shape[0]
         model.eval()
         with torch.no_grad():
@@ -238,16 +240,7 @@ class Diffusion:
             xts = torch.zeros(
                 (
                     num_images,
-                    timestemp,
-                    images.shape[1],
-                    images.shape[2],
-                    images.shape[3],
-                )
-            ).to(self.device)
-            noises = torch.zeros(
-                (
-                    num_images,
-                    timestemp,
+                    stop - start,
                     images.shape[1],
                     images.shape[2],
                     images.shape[3],
@@ -256,37 +249,35 @@ class Diffusion:
             zs = torch.zeros(
                 (
                     num_images,
-                    timestemp - 1,
+                    stop - start,
                     images.shape[1],
                     images.shape[2],
                     images.shape[3],
                 )
             ).to(self.device)
-            for i in tqdm(reversed(range(1, timestemp)), position=0):
+            for i in tqdm(reversed(range(start, stop)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t, noise = self.noise_images(images, t, pyramid=True)
-                xts[:, i] = x_t
-                noises[:,i] = noise
-            xts[:, 0] = images
-            noises[:,0] = torch.zeros_like(images)
+                x_t, noise = self.noise_images(images, t, pyramid=pyramid)
+                xts[:, i - start] = x_t
 
             # calculate the differences
-            for i in tqdm(reversed(range(1, timestemp)), position=0):
+            for i in tqdm(reversed(range(start, stop)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t = xts[:, i]
-                true_noise = noises[:,i]
+                x_t = xts[:, i - start]
                 predicted_noise = model(x_t, t)
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
-                mean = self.ddpm_mu_t(x_t,true_noise,t)
+                mean = self.ddpm_mean_t(x_t,t,x_0=images)
                 # what was supposed to be predicted and what is predicted
-                z_t = (mean - mu_t).abs()
-                zs[:, i - 1] = z_t
+                z_t = (mean - mu_t)**2
+                zs[:, i - start] = z_t
         return zs
 
     
-    def skip_differences(self, model, images, timestemp=None, skip=25):
-        if timestemp is None:
-            timestemp = self.noise_steps
+    def skip_differences(self, model, images, start = 100, stop=None, skip=25, pyramid = False):
+        if stop is None:
+            stop = self.noise_steps
+        if start == 0:
+            start = 1
         num_images = images.shape[0]
         model.eval()
         with torch.no_grad():
@@ -294,7 +285,7 @@ class Diffusion:
             xts = torch.zeros(
                 (
                     num_images,
-                    timestemp,
+                    stop - start,
                     images.shape[1],
                     images.shape[2],
                     images.shape[3],
@@ -303,50 +294,37 @@ class Diffusion:
             zs = torch.zeros(
                 (
                     num_images,
-                    int(((timestemp) / skip)),
+                    int(((stop-start) / skip)),
                     images.shape[1],
                     images.shape[2],
                     images.shape[3],
                 )
             ).to(self.device)
-            for i in tqdm(reversed(range(1, timestemp)), position=0):
+            for i in tqdm(reversed(range(start, stop)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t, noise = self.noise_images(images, t, pyramid=True)
-                xts[:, i] = x_t
+                x_t, noise = self.noise_images(images, t, pyramid=pyramid)
+                xts[:, i - start] = x_t
 
-            xts[:, 0] = images
             correct_chain = xts[:,-1]
-            predcited_chain = xts[:, -1]
+            predicted_chain = xts[:, -1]
 
-            for i in tqdm(reversed(range(1, timestemp)), position=0):
+            for i in tqdm(reversed(range(start, stop)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                t_m1 = (torch.ones(num_images) * (i - 1)).long().to(self.device)
-                predicted_noise = model(predcited_chain, t)
-                mu_t = self.ddpm_mu_t(predcited_chain, predicted_noise, t)
-                beta = self.beta[t][:, None, None, None]
-                alpha = self.alpha[t][:, None, None, None]
-                alpha_hat = self.alpha_hat[t][:, None, None, None]
-                alpha_hat_minus_one = self.alpha_hat[t_m1][:, None, None, None]
-                # this follows the mu calculation of ddpm_mu_t_2 given as eq 7 in DDPM paper
-                w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
-                wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
-                mean = w0 * images + wt * correct_chain
-                correct_chain = mean
-                predcited_chain = mu_t
+                predicted_noise = model(predicted_chain, t)
+                predicted_chain = self.ddpm_mu_t(predicted_chain, predicted_noise, t)
+                correct_chain = self.ddpm_mean_t(correct_chain,t,x_0=images)
                 if i % skip == 0 or i == 1:
-                    if i != 1:
-                        z_t = (correct_chain - predcited_chain).abs()
-                        zs[:, int(i / skip)] = z_t
-                        predcited_chain = xts[:, i - 1]
-                        correct_chain = xts[:, i - 1]
-                    else:
-                        z_t = (images - predcited_chain).abs()
-                        zs[:, 0] = z_t
+                    z_t = (correct_chain - predicted_chain)**2
+                    zs[:, int((i-start) / skip)] = z_t
+                    predicted_chain = xts[:, i - start]
+                    correct_chain = xts[:, i - start]
         return zs
 
-    def differences_noise(self, model, images, timestemp=None):
-        if timestemp is None:
-            timestemp = self.noise_steps
+    def differences_noise(self, model, images, start = 100, stop=None, pyramid = False):
+        if stop is None:
+            stop = self.noise_steps
+        if start == 0:
+            start = 1
         num_images = images.shape[0]
         model.eval()
         with torch.no_grad():
@@ -354,7 +332,7 @@ class Diffusion:
             xts = torch.zeros(
                 (
                     num_images,
-                    timestemp,
+                    stop - start,
                     images.shape[1],
                     images.shape[2],
                     images.shape[3],
@@ -363,7 +341,7 @@ class Diffusion:
             noises = torch.zeros(
                 (
                     num_images,
-                    timestemp,
+                    stop - start,
                     images.shape[1],
                     images.shape[2],
                     images.shape[3],
@@ -372,28 +350,25 @@ class Diffusion:
             zs = torch.zeros(
                 (
                     num_images,
-                    timestemp - 1,
+                    stop - start,
                     images.shape[1],
                     images.shape[2],
                     images.shape[3],
                 )
             ).to(self.device)
-            for i in tqdm(reversed(range(1, timestemp)), position=0):
+            for i in tqdm(reversed(range(start, stop)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t, noise = self.noise_images(images, t, pyramid=False)
-                xts[:, i] = x_t
-                noises[:,i] = noise
-            xts[:, 0] = images
-            noises[:,0] = torch.zeros_like(images)
+                x_t, noise = self.noise_images(images, t, pyramid=pyramid)
+                xts[:, i - start] = x_t
+                noises[:,i - start] = noise
 
-            # generate the latents
-            for i in tqdm(reversed(range(1, timestemp)), position=0):
+            for i in tqdm(reversed(range(start, stop)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t = xts[:, i]
-                true_noise = noises[:,i]
+                x_t = xts[:, i - start]
+                true_noise = noises[:,i - start]
                 predicted_noise = model(x_t, t)
-                z_t = (predicted_noise - true_noise).abs()
-                zs[:, i - 1] = z_t
+                z_t = (predicted_noise - true_noise)**2
+                zs[:, i - start] = z_t
         return zs
 
     # initial idea of using z_t -> does not work well
@@ -420,6 +395,25 @@ class Diffusion:
                 x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * (
                     noise_scale * noise + (1 - noise_scale) * zs[:, i - 1]
                 )
+        model.train()
+        return x
+    
+
+    def ano_ddpm(self, model, images, num_steps):
+        model.eval()
+        num_images = images.shape[0]
+        with torch.no_grad():
+            t = (torch.ones(num_images) * num_steps).long().to(self.device)
+            x, noise = self.noise_images(images,t)
+            for i in tqdm(reversed(range(1, num_steps)), position=0):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                predicted_noise = model(x, t)
+                beta = self.beta[t][:, None, None, None]
+                if i > 1:
+                    noise = torch.randn_like(x)
+                else:
+                    noise = torch.zeros_like(x)
+                x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
         model.train()
         return x
 
