@@ -18,8 +18,8 @@ def main():
     torch.manual_seed(73)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_small.csv"
+    args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val_small.csv"
     args.batch_size = 1
     args.image_size = 128
 
@@ -28,7 +28,7 @@ def main():
     device = accelerator.device
     model = UNet().to(device=device)
     ckpt = torch.load(
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_p_full/232_ema_ckpt.pt"
+        "/mnt/qb/work/baumgartner/bkc035/normative-diffusion/models/pyramid/232_ema_ckpt.pt"
      )
     
     model.load_state_dict(ckpt)
@@ -65,22 +65,21 @@ def main():
         for i, (image, label) in enumerate(pbar):
             image, label = accelerator.gather_for_metrics((image,label))
             image = (image * 2) - 1
-            num_steps = 500
+            num_steps = 300
+            size_splits = 31
             num_volumes = image.shape[0]
             num_slices = image.shape[4]
 
             image = torch.permute(image,(0,4,1,2,3))
             image = image.view(-1,image.shape[2],image.shape[3],image.shape[4])
-            split = torch.split(image,[int(num_slices/2),int((num_slices+1)/2)])
-        
-            zs1 = diffusion.dpm_differences(model, split[0], timestemp=num_steps)
-            #zs1 = diffusion.skip_differences(model, split[0], timestemp=num_steps,skip=25)
-            zs1 = zs1.to('cpu')
-            zs2 = diffusion.dpm_differences(model, split[1], timestemp=num_steps)
-            #zs2 = diffusion.skip_differences(model, split[1], timestemp=num_steps,skip=25)
-            zs2 = zs2.to('cpu')
+            split = torch.split(image,size_splits)
+            zs_list = []
+            for my_tensor in split:
+                #zs_list.append(diffusion.dpm_differences(model, my_tensor, start = 50, stop = num_steps, pyramid=True).to('cpu'))
+                #zs_list.append(diffusion.skip_differences(model, my_tensor, start = 50, stop = num_steps, skip=25, pyramid=True).to('cpu'))
+                zs_list.append(diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True).to('cpu'))$
 
-            zs = torch.cat((zs1,zs2),dim=0)
+            zs = torch.cat(zs_list,dim=0)
             #my_mean = torch.mean(zs, dim=1)
             my_mean = gmean(zs, dim=1)
             my_mean = my_mean.view(num_volumes,num_slices,my_mean.shape[1],my_mean.shape[2],my_mean.shape[3])
@@ -105,8 +104,7 @@ def main():
 
             dice_scores_mask[f"AUPRC"] = aupr
             df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
-            df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/mask_3D.csv")
-            # df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
+            df_mask.to_csv("/mnt/qb/work/baumgartner/bkc035/mask_3D.csv")
 
 
 def median_filter_2D(volume, kernelsize=5):
