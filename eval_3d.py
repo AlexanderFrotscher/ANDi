@@ -77,7 +77,7 @@ def main():
             for my_tensor in split:
                 #zs_list.append(diffusion.dpm_differences(model, my_tensor, start = 50, stop = num_steps, pyramid=True).to('cpu'))
                 #zs_list.append(diffusion.skip_differences(model, my_tensor, start = 50, stop = num_steps, skip=25, pyramid=True).to('cpu'))
-                zs_list.append(diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True).to('cpu'))$
+                zs_list.append(diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True).to('cpu'))
 
             zs = torch.cat(zs_list,dim=0)
             #my_mean = torch.mean(zs, dim=1)
