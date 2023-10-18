@@ -77,7 +77,6 @@ def main():
                 zs = diffusion.dpm_differences(model, my_tensor, start = 100, stop = num_steps, pyramid=True)
                 #zs = diffusion.skip_differences(model, my_tensor, start = 50, stop = num_steps, skip=25, pyramid=True)
                 #zs = diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True)
-                zs = accelerator.gather_for_metrics(zs)
                 zs_list.append(zs.to('cpu'))
 
 
@@ -87,7 +86,8 @@ def main():
             my_mean = my_mean.view(num_volumes,num_slices,my_mean.shape[1],my_mean.shape[2],my_mean.shape[3])
             my_mean = torch.permute(my_mean,(0,2,3,4,1))
 
-            label = accelerator.gather_for_metrics(label)
+            my_mean = my_mean.to(device)
+            my_mean, label = accelerator.gather_for_metrics((my_mean,label))
             my_labels = torch.cat((my_labels, label.to("cpu")), dim=0)
             my_volume = torch.cat((my_volume, my_mean.to("cpu")), dim=0)
 
