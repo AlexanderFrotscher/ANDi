@@ -74,9 +74,12 @@ def main():
             split = torch.split(image,size_splits)
             zs_list = []
             for my_tensor in split:
-                zs_list.append(diffusion.dpm_differences(model, my_tensor, start = 100, stop = num_steps, pyramid=True))
-                #zs_list.append(diffusion.skip_differences(model, my_tensor, start = 50, stop = num_steps, skip=25, pyramid=True))
-                #zs_list.append(diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True))
+                zs = diffusion.dpm_differences(model, my_tensor, start = 100, stop = num_steps, pyramid=True)
+                #zs = diffusion.skip_differences(model, my_tensor, start = 50, stop = num_steps, skip=25, pyramid=True)
+                #zs = diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True)
+                zs = accelerator.gather_for_metrics(zs)
+                zs_list.append(zs.to('cpu'))
+
 
             zs_list = torch.cat(zs_list,dim=0)
             #my_mean = torch.mean(zs, dim=1)
@@ -84,7 +87,7 @@ def main():
             my_mean = my_mean.view(num_volumes,num_slices,my_mean.shape[1],my_mean.shape[2],my_mean.shape[3])
             my_mean = torch.permute(my_mean,(0,2,3,4,1))
 
-            my_mean, label = accelerator.gather_for_metrics((my_mean,label))
+            label = accelerator.gather_for_metrics(label)
             my_labels = torch.cat((my_labels, label.to("cpu")), dim=0)
             my_volume = torch.cat((my_volume, my_mean.to("cpu")), dim=0)
 
