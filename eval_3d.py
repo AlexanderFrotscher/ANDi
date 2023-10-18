@@ -65,7 +65,7 @@ def main():
         for i, (image, label) in enumerate(pbar):
             image = (image * 2) - 1
             num_steps = 300
-            size_splits = 31
+            size_splits = 50
             num_volumes = image.shape[0]
             num_slices = image.shape[4]
 
@@ -74,22 +74,21 @@ def main():
             split = torch.split(image,size_splits)
             zs_list = []
             for my_tensor in split:
-                #zs_list.append(diffusion.dpm_differences(model, my_tensor, start = 50, stop = num_steps, pyramid=True).to('cpu'))
-                #zs_list.append(diffusion.skip_differences(model, my_tensor, start = 50, stop = num_steps, skip=25, pyramid=True).to('cpu'))
-                zs_list.append(diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True).to('cpu'))
+                zs_list.append(diffusion.dpm_differences(model, my_tensor, start = 100, stop = num_steps, pyramid=True))
+                #zs_list.append(diffusion.skip_differences(model, my_tensor, start = 50, stop = num_steps, skip=25, pyramid=True))
+                #zs_list.append(diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True))
 
-            zs = torch.cat(zs_list,dim=0)
+            zs_list = torch.cat(zs_list,dim=0)
             #my_mean = torch.mean(zs, dim=1)
-            my_mean = gmean(zs, dim=1)
+            my_mean = gmean(zs_list, dim=1)
             my_mean = my_mean.view(num_volumes,num_slices,my_mean.shape[1],my_mean.shape[2],my_mean.shape[3])
             my_mean = torch.permute(my_mean,(0,2,3,4,1))
 
-
+            my_mean, label = accelerator.gather_for_metrics((my_mean,label))
             my_labels = torch.cat((my_labels, label.to("cpu")), dim=0)
             my_volume = torch.cat((my_volume, my_mean.to("cpu")), dim=0)
 
         if accelerator.is_main_process:
-            my_volume, my_labels = accelerator.gather_for_metrics((my_volume,my_labels))
             my_mask = torch.max(my_volume,dim=1)[0]
             #my_mask = (my_volume[:,0] + my_volume[:,3])*0.5
             my_mask = median_filter_3D(my_mask)
