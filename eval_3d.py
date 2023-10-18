@@ -63,7 +63,6 @@ def main():
             .to("cpu")
         )
         for i, (image, label) in enumerate(pbar):
-            image, label = accelerator.gather_for_metrics((image,label))
             image = (image * 2) - 1
             num_steps = 300
             size_splits = 31
@@ -90,6 +89,7 @@ def main():
             my_volume = torch.cat((my_volume, my_mean.to("cpu")), dim=0)
 
         if accelerator.is_main_process:
+            my_volume, my_labels = accelerator.gather_for_metrics((my_volume,my_labels))
             my_mask = torch.max(my_volume,dim=1)[0]
             #my_mask = (my_volume[:,0] + my_volume[:,3])*0.5
             my_mask = median_filter_3D(my_mask)
