@@ -3,20 +3,16 @@ __email__ = "alexander.frotscher@student.uni-tuebingen.de"
 
 import argparse
 import logging
-import os
 import os.path
 import sys
 
 sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
+    os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
+)
 
-import numpy as np
-import torch
-import torch.nn as nn
 from accelerate import Accelerator
 from dae_unet import *
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from tqdm import tqdm
 
 import wandb
 from utils import *
@@ -25,7 +21,7 @@ logging.basicConfig(format="%(message)s", level=logging.INFO)
 
 
 def loss_f(y, predictions, mask):
-        return (torch.pow(predictions - y, 2) * mask.float()).mean()
+    return (torch.pow(predictions - y, 2) * mask.float()).mean()
 
 
 def train(args):
@@ -34,8 +30,10 @@ def train(args):
     accelerator = Accelerator()
     device = accelerator.device
     dataloader = Brats21(args, preload=True)
-    model = UNet(args.channels,args.channels,depth=4,wf=6,padding=True).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, amsgrad=True, weight_decay=0.00001)
+    model = UNet(args.channels, args.channels, depth=4, wf=6, padding=True).to(device)
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=args.lr, amsgrad=True, weight_decay=0.00001
+    )
 
     if args.train_continue == True:
         ckpt = torch.load(args.current_model)
@@ -53,11 +51,16 @@ def train(args):
         pbar = tqdm(dataloader)
         for i, (images) in enumerate(pbar):
             mask = images.sum(dim=1, keepdim=True) > 0.01
-            my_noise = coarse_noise(images.shape[0],images.shape[1],images.device,image_size=images.shape[2])
+            my_noise = coarse_noise(
+                images.shape[0],
+                images.shape[1],
+                images.device,
+                image_size=images.shape[2],
+            )
             my_noise *= mask
             noise_images = images.clone() + my_noise
             predicted_image = model(noise_images)
-            loss = loss_f(images,predicted_image, mask)
+            loss = loss_f(images, predicted_image, mask)
 
             optimizer.zero_grad()
             accelerator.backward(loss)
@@ -104,7 +107,6 @@ def main():
     wandb.init(entity="team-frotscher", project=args.run_name, config=args)
 
     train(args)
-
 
 
 if __name__ == "__main__":

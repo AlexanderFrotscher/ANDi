@@ -14,15 +14,16 @@ import numpy as np
 import pandas as pd
 import skimage.exposure as ex
 import torch
+import torch.nn as nn
 import torchvision
 from matplotlib import pyplot as plt
 from PIL import Image
 from scipy.ndimage import median_filter
 from scipy.signal import medfilt2d
 from torch.nn import functional as F
-from torch.nn.modules.utils import _pair, _quadruple
 from torch.utils.data import DataLoader, Dataset
-from torchvision import datasets, transforms
+from torchvision import transforms
+from tqdm import tqdm
 
 
 def plot_images(images, mode="RGB"):
@@ -93,29 +94,12 @@ def upload_images(images, mode="RGB", **kwargs):
     return ndarr
 
 
-def cifar_10(args):
-    transform_train = transforms.Compose(
-        [
-            transforms.Resize(args.image_size),
-            transforms.RandomHorizontalFlip(0.4),
-            transforms.ToTensor(),  # divide by 255
-        ]
-    )
-    ds_train = datasets.CIFAR10(
-        "./data", train=True, download=True, transform=transform_train
-    )
-    dl_train = DataLoader(
-        ds_train, batch_size=args.batch_size, num_workers=2, shuffle=True
-    )
-    return dl_train
-
-
-"""
-This class is based on https://www.kaggle.com/code/polomarco/brats20-3dunet-3dautoencoder
-"""
-
-
 class BratsDataset(Dataset):
+    """
+    This class is based on https://www.kaggle.com/code/polomarco/brats20-3dunet-3dautoencoder and
+    loads individual slices that have to be given by a .csv file.
+    """
+
     def __init__(
         self,
         df: pd.DataFrame,
@@ -137,7 +121,6 @@ class BratsDataset(Dataset):
     def __getitem__(self, idx):
         id_ = self.df.loc[idx, "BraTS21ID"]
         images = []
-        # age = self.df.loc[idx, "Age"]
         slice = self.df.loc[idx, "Slice"]
         for data_type in self.data_types:
             img_path = os.path.join(self.dataset_path, id_, id_ + data_type)
@@ -146,9 +129,7 @@ class BratsDataset(Dataset):
 
         mask_path = os.path.join(self.dataset_path, id_, id_ + "_seg.nii.gz")
         mask = np.asarray(nib.load(mask_path).dataobj[:, :, slice], dtype=int)
-        mask[mask == 1] = 1
-        mask[mask == 2] = 1
-        mask[mask == 4] = 1
+        mask[mask >= 1] = 1  # mask contains the labels 1, 2, and 4
         mask = torch.from_numpy(mask)
         mask = mask[None, :, :]
         if self.hist == True:
@@ -159,7 +140,7 @@ class BratsDataset(Dataset):
             img = normalize_volume(img.float())
         img = img[:, :, :, slice]
         img = self.transforms(img)
-        my_transform = transforms.Resize(128, antialias=True)
+        my_transform = transforms.Resize(self.image_size, antialias=True)
         mask = my_transform(mask)
         return img, mask
 
@@ -191,9 +172,7 @@ class BratsDataVolume(Dataset):
 
         mask_path = os.path.join(self.dataset_path, id_, id_ + "_seg.nii.gz")
         mask = np.asarray(nib.load(mask_path).dataobj, dtype=float)
-        mask[mask == 1] = 1
-        mask[mask == 2] = 1
-        mask[mask == 4] = 1
+        mask[mask >= 1] = 1
         mask = torch.from_numpy(mask)
         if self.hist == True:
             img = np.stack([x for x in images])
@@ -207,16 +186,14 @@ class BratsDataVolume(Dataset):
         volume = torch.zeros(
             img.shape[0], self.image_size, self.image_size, end_range - start_range
         )
-        my_mask = torch.zeros(128, 128, end_range - start_range)
-        my_transform_1 = transforms.Resize(self.image_size, antialias=True)
-        my_transform_2 = transforms.Resize(128, antialias=True)
+        my_mask = torch.zeros(self.image_size, self.image_size, end_range - start_range)
+        my_transform = transforms.Resize(self.image_size, antialias=True)
         for i in range(start_range, end_range):
-            volume[:, :, :, i - start_range] = my_transform_1(img[None, :, :, :, i])
-            my_mask[:, :, i - start_range] = my_transform_2(mask[None, None, :, :, i])
+            volume[:, :, :, i - start_range] = my_transform(img[None, :, :, :, i])
+            my_mask[:, :, i - start_range] = my_transform(mask[None, None, :, :, i])
         my_mask[my_mask > 0.5] = 1
         my_mask[my_mask != 1] = 0
         my_mask = my_mask.type(torch.bool)
-
         return volume, my_mask
 
 
@@ -232,88 +209,6 @@ class preload_dataset(Dataset):
         img = self.images[idx]
         img = self.transforms(img)
         return img
-
-
-"""
-This function is adapted from https://github.com/AntanasKascenas/DenoisingAE
-"""
-
-
-def normalize_volume(images):
-    """
-    Normalise the intensity values in each modality by scaling by 99 percentile foreground (nonzero) value.
-    """
-    for modality in range(images.shape[0]):
-        i_ = images[modality, :, :, :].reshape(-1)
-        i_ = i_[i_ > 0]
-        p_99 = torch.quantile(i_, 0.99)
-        images[modality, :, :, :] /= p_99
-
-    return images
-
-
-def hist_norm(images):
-    for modality in range(images.shape[0]):
-        i_ = images[modality, :, :, :]
-        mask = np.zeros_like(i_)
-        mask[i_ > 0] = 1
-        i_ = i_ / np.max(i_)
-        i_ = ex.equalize_hist(i_.astype(np.float32), mask=mask, nbins=256)
-        i_ *= mask
-        images[modality, :, :, :] = i_
-    return torch.Tensor(images)
-
-
-def preprocess_mask(mask):
-    mask_WT = mask.copy()
-    mask_WT[mask_WT == 1] = 1
-    mask_WT[mask_WT == 2] = 1
-    mask_WT[mask_WT == 4] = 1
-    return mask_WT
-
-
-def dice(pred, target):
-    pred_sum = pred.view(-1).sum()
-    target_sum = target.view(-1).sum()
-    intersection = pred.view(-1).float() @ target.view(-1).float()
-    dice = (2 * intersection) / (pred_sum + target_sum)
-    return dice
-
-
-def coarse_noise(n, channels, device, noise_size=16, noise_std=0.2, image_size=64):
-    noise = torch.normal(
-        mean=torch.zeros(n, channels, noise_size, noise_size), std=noise_std
-    ).to(device)
-    # padding = _quadruple(6)
-    # noise = F.pad(noise, padding, mode="circular")
-    # my_resize = transforms.Resize(64, antialias=True)
-    # noise = my_resize(noise)
-    noise = F.interpolate(
-        noise,
-        size=(image_size, image_size),
-        mode="bilinear",
-        antialias=False,
-        align_corners=True,
-    )
-    # Roll to randomly translate the generated noise.
-    roll_x = random.choice(range(image_size))
-    roll_y = random.choice(range(image_size))
-    noise = torch.roll(noise, shifts=[roll_x, roll_y], dims=[2, 3])
-    return noise
-
-
-def pyramid_noise_like(n, channels, device, image_size=128, discount=0.8):
-  u = transforms.Resize(image_size, antialias=True)
-  noise = torch.randn((n, channels, image_size, image_size)).to(device)
-  w = image_size
-  h = image_size
-  for i in range(10):
-    r = random.random()*2+2 # Rather than always going 2x, 
-    w, h = max(1, int(w/(r**i))), max(1, int(h/(r**i)))
-    noise += u(torch.randn(n, channels, w, h).to(device)) * discount**i
-    if w==1 or h==1: break # Lowest resolution is 1x1
-  return noise/noise.std() # Scaled back to roughly unit variance
-
 
 
 def Brats21(args, preload=False, eval=False, hist=False):
@@ -353,12 +248,11 @@ def Brats21(args, preload=False, eval=False, hist=False):
                 img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
                 img = normalize_volume(img.float())
 
-            mask = preprocess_mask(mask)
+            mask[mask >= 1] = 1
             for i in range(img.shape[3]):
                 my_slice = img[0, :, :, i]
                 my_mask = mask[:, :, i]
-                num_zeros = np.count_nonzero(my_slice == 0)
-                if num_zeros < 57600 and 1 not in my_mask:
+                if torch.count_nonzero(my_slice) and 1 not in my_mask:
                     my_slices.append(img[:, :, :, i])
         dataset = preload_dataset(my_slices, my_transforms)
         dataloader = DataLoader(
@@ -382,6 +276,113 @@ def Brats_Volume(args, hist=False):
         dataset, batch_size=args.batch_size, num_workers=1, shuffle=False
     )
     return dataloader
+
+
+def normalize_volume(images):
+    """
+    This function is adapted from https://github.com/AntanasKascenas/DenoisingAE
+    Normalise the intensity values in each modality by scaling by 99 percentile foreground (nonzero) value.
+    """
+    for modality in range(images.shape[0]):
+        i_ = images[modality, :, :, :].reshape(-1)
+        i_ = i_[i_ > 0]
+        p_99 = torch.quantile(i_, 0.99)
+        images[modality, :, :, :] /= p_99
+
+    return images
+
+
+def hist_norm(images):
+    for modality in range(images.shape[0]):
+        i_ = images[modality, :, :, :]
+        mask = np.zeros_like(i_)
+        mask[i_ > 0] = 1
+        i_ = i_ / np.max(i_)
+        i_ = ex.equalize_hist(i_.astype(np.float32), mask=mask, nbins=256)
+        i_ *= mask
+        images[modality, :, :, :] = i_
+    return torch.Tensor(images)
+
+
+def dice(pred, target):
+    pred_sum = pred.view(-1).sum()
+    target_sum = target.view(-1).sum()
+    intersection = pred.view(-1).float() @ target.view(-1).float()
+    dice = (2 * intersection) / (pred_sum + target_sum)
+    return dice
+
+
+def coarse_noise(n, channels, device, noise_size=16, noise_std=0.2, image_size=128):
+    noise = torch.normal(
+        mean=torch.zeros(n, channels, noise_size, noise_size), std=noise_std
+    ).to(device)
+    noise = F.interpolate(
+        noise,
+        size=(image_size, image_size),
+        mode="bilinear",
+        antialias=False,
+        align_corners=True,
+    )
+    # Roll to randomly translate the generated noise.
+    roll_x = random.choice(range(image_size))
+    roll_y = random.choice(range(image_size))
+    noise = torch.roll(noise, shifts=[roll_x, roll_y], dims=[2, 3])
+    return noise
+
+
+def pyramid_noise_like(n, channels, device, image_size=128, discount=0.8):
+    u = transforms.Resize(image_size, antialias=True)
+    noise = torch.randn((n, channels, image_size, image_size)).to(device)
+    w = image_size
+    h = image_size
+    for i in range(10):
+        r = random.random() * 2 + 2  # Rather than always going 2x,
+        w, h = max(1, int(w / (r**i))), max(1, int(h / (r**i)))
+        noise += u(torch.randn(n, channels, w, h).to(device)) * discount**i
+        if w == 1 or h == 1:
+            break  # Lowest resolution is 1x1
+    return noise / noise.std()  # Scaled back to roughly unit variance
+
+
+# dynamic normalisation
+def clamp_to_spatial_quantile(x: torch.Tensor, p: float):
+    b, c, *spatial = x.shape
+    quantile = torch.quantile(torch.abs(x).view(b, c, -1), p, dim=-1, keepdim=True)
+    quantile = torch.max(quantile, torch.ones_like(quantile))
+    quantile_broadcasted, _ = torch.broadcast_tensors(quantile.unsqueeze(-1), x)
+    return (
+        torch.min(torch.max(x, -quantile_broadcasted), quantile_broadcasted)
+        / quantile_broadcasted
+    )
+
+
+def median_filter_2D(volume, kernelsize=5):
+    volume = volume.cpu().numpy()
+    pbar = tqdm(range(len(volume)), desc="Median filtering")
+    for i in pbar:
+        for j in range(volume.shape[1]):
+            volume[i, j, :, :] = medfilt2d(volume[i, j, :, :], kernel_size=kernelsize)
+    return torch.Tensor(volume)
+
+
+def median_filter_3D(volume, kernelsize=5):
+    volume = volume.cpu().numpy()
+    pbar = tqdm(range(len(volume)), desc="Median filtering")
+    for i in pbar:
+        volume[i] = median_filter(volume[i], size=(kernelsize, kernelsize, kernelsize))
+    return torch.Tensor(volume)
+
+
+def norm_tensor(tensor):
+    my_max = torch.max(tensor)
+    my_min = torch.min(tensor)
+    my_tensor = (tensor - my_min) / (my_max - my_min)
+    return my_tensor
+
+
+def gmean(input_x, dim):
+    log_x = torch.log(input_x)
+    return torch.exp(torch.mean(log_x, dim=dim))
 
 
 def make_dicts(run_name):

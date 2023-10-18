@@ -9,13 +9,10 @@ import sys
 sys.path.append(
     os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 
-import numpy as np
-import pandas as pd
-import torch
+
 from accelerate import Accelerator
 from dae_unet import *
 from sklearn.metrics import average_precision_score
-from tqdm import tqdm
 
 from utils import *
 
@@ -107,28 +104,6 @@ def main():
             df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
             df_mask.to_csv("/mnt/qb/work/baumgartner/bkc035/dae_result.csv")
 
-
-def median_filter_2D(volume, kernelsize=5):
-    volume = volume.cpu().numpy()
-    pbar = tqdm(range(len(volume)), desc="Median filtering")
-    for i in pbar:
-        volume[i] = medfilt2d(volume[i], kernel_size=kernelsize)
-    return torch.Tensor(volume)
-
-
-def median_filter_3D(volume, kernelsize=5):
-    volume = volume.cpu().numpy()
-    pbar = tqdm(range(len(volume)), desc="Median filtering")
-    for i in pbar:
-        volume[i] = median_filter(volume[i], size=(kernelsize, kernelsize, kernelsize))
-    return torch.Tensor(volume)
-
-
-def norm_tensor(tensor):
-    my_max = torch.max(tensor)
-    my_min = torch.min(tensor)
-    my_tensor = (tensor - my_min) / (my_max - my_min)
-    return my_tensor
 
 if __name__ == "__main__":
     main()
