@@ -4,16 +4,21 @@ __email__ = "alexander.frotscher@student.uni-tuebingen.de"
 import argparse
 import logging
 import os
+import os.path
+import sys
+
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 
 import numpy as np
 import torch
 import torch.nn as nn
 from accelerate import Accelerator
-from tqdm import tqdm
+from dae_unet import *
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from tqdm import tqdm
 
 import wandb
-from dae_unet import *
 from utils import *
 
 logging.basicConfig(format="%(message)s", level=logging.INFO)

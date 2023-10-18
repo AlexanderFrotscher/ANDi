@@ -1,5 +1,10 @@
 import argparse
 import os
+import os.path
+import sys
+
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 
 import nibabel as nib
 import numpy as np

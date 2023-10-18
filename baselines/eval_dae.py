@@ -1,16 +1,22 @@
 __author__ = "Alexander Frotscher"
 __email__ = "alexander.frotscher@student.uni-tuebingen.de"
 
+
 import argparse
+import os.path
+import sys
+
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 
 import numpy as np
 import pandas as pd
 import torch
 from accelerate import Accelerator
+from dae_unet import *
 from sklearn.metrics import average_precision_score
 from tqdm import tqdm
 
-from dae import *
 from utils import *
 
 
@@ -18,11 +24,9 @@ def main():
     torch.manual_seed(73)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.dataset_path = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
-    #args.dataset_path = "./data/BraTS20/BraTS20_Training"
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_val_big.csv"
-    #args.path_to_csv = "./data/BraTS20/survival_info_02.csv"
-    args.batch_size = 20
+    args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val_small.csv"
+    args.batch_size = 1
     args.image_size = 128
     args.channels = 4
 
@@ -30,7 +34,7 @@ def main():
     device = accelerator.device
     model = UNet(args.channels,args.channels,depth=4,wf=6,padding=True).to(device)
     ckpt = torch.load(
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/DAE/12_ckpt.pt"
+        "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data/models/DAE/16_ckpt.pt"
      )
     model.load_state_dict(ckpt)
     dataloader = Brats_Volume(args, hist=False)
@@ -44,6 +48,7 @@ def main():
         my_volume = torch.zeros(
             (
                 1,
+                4,
                 128,
                 128,
                 155,
@@ -62,30 +67,32 @@ def main():
             .to("cpu")
         )
         for i, (image, label) in enumerate(pbar):
-            tmp_volume = torch.zeros(
-                (
-                    image.shape[0],
-                    128,
-                    128,
-                    image.shape[4],
-                )
-            ).to(device)
-            for j in range(image.shape[4]):
-                my_img = model(image[:,:,:,:,j])
-                mask = image[:,:,:,:,j].sum(dim=1, keepdim=True) > 0.01
+            num_volumes = image.shape[0]
+            num_slices = image.shape[4]
+            size_splits = 155
+
+            image = torch.permute(image,(0,4,1,2,3))
+            image = image.view(-1,image.shape[2],image.shape[3],image.shape[4])
+            split = torch.split(image,size_splits)
+            prediction = []
+            for my_tensor in split:
+                pseudo_img = model(my_tensor)
+                mask = my_tensor.sum(dim=1, keepdim=True) > 0.01
                 # Erode the mask a bit to remove some of the reconstruction errors at the edges.
                 mask = (F.avg_pool2d(mask.float(), kernel_size=5, stride=1, padding=2) > 0.95)
+                my_diff = ((my_tensor - pseudo_img) * mask).abs()
+                prediction.append(my_diff.to('cpu'))
+            
+            prediction = torch.cat(prediction,dim=0)
+            prediction = prediction.view(num_volumes,num_slices,prediction.shape[1],prediction.shape[2],prediction.shape[3])
+            prediction = torch.permute(prediction,(0,2,3,4,1))
+            prediction = prediction.to(device)
+            prediction, label = accelerator.gather_for_metrics((prediction, label))
+            my_labels = torch.cat((my_labels, label.to("cpu")), dim=0)
+            my_volume = torch.cat((my_volume, prediction.to("cpu")), dim=0)
 
-                my_diff = ((image[:,:,:,:,j] - my_img) * mask) #.abs().mean(dim=1)
-                my_diff = (my_diff[:,0] + my_diff[:,3]) * 0.5
-                #my_diff = median_filter_2D(my_diff)
-                #my_diff = my_diff[:,0]
-                tmp_volume[:, :, :, j] = my_diff
-
-            tmp_volume, tmp_labels = accelerator.gather_for_metrics((tmp_volume,label))
-            my_labels = torch.cat((my_labels, tmp_labels.to("cpu")), dim=0)
-            my_volume = torch.cat((my_volume, tmp_volume.to("cpu")), dim=0)
         if accelerator.is_main_process:
+            my_volume = torch.max(my_volume,dim=1)[0]
             my_labels = my_labels.contiguous()
             my_volume = median_filter_3D(my_volume)
             #my_volume = norm_tensor(my_volume)
@@ -98,8 +105,7 @@ def main():
 
             dice_scores_mask[f"AUPRC"] = aupr
             df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
-            df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/dae_result.csv")
-            # df_mask.to_csv("./results/BraTS21/mask_one_3D.csv")
+            df_mask.to_csv("/mnt/qb/work/baumgartner/bkc035/dae_result.csv")
 
 
 def median_filter_2D(volume, kernelsize=5):
@@ -123,15 +129,6 @@ def norm_tensor(tensor):
     my_min = torch.min(tensor)
     my_tensor = (tensor - my_min) / (my_max - my_min)
     return my_tensor
-
-
-def show_slices(slices):
-    """Function to display row of image slices"""
-    fig, axes = plt.subplots(1, len(slices))
-    for i, (slice) in enumerate(slices):
-        axes[i].imshow(slice, cmap="gray")
-    plt.show()
-
 
 if __name__ == "__main__":
     main()
