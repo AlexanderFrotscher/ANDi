@@ -38,31 +38,12 @@ def main():
     dice_scores_mask = {i: [] for i in threshold_test}
 
     with torch.no_grad():
-        my_volume = torch.zeros(
-            (
-                1,
-                4,
-                128,
-                128,
-                155,
-            )
-        ).to("cpu")
-        my_labels = (
-            torch.zeros(
-                (
-                    1,
-                    128,
-                    128,
-                    155,
-                )
-            )
-            .type(torch.bool)
-            .to("cpu")
-        )
+        my_volume = []
+        my_labels = []
         for i, (image, label) in enumerate(pbar):
             image = (image * 2) - 1
             num_steps = 300
-            size_splits = 50
+            size_splits = 20
             num_volumes = image.shape[0]
             num_slices = image.shape[4]
 
@@ -71,9 +52,10 @@ def main():
             split = torch.split(image, size_splits)
             zs_list = []
             for my_tensor in split:
-                zs = diffusion.dpm_differences(model, my_tensor, start=100, stop=num_steps, pyramid=True)
+                # zs = diffusion.dpm_differences(model, my_tensor, start=100, stop=num_steps, pyramid=True)
                 # zs = diffusion.skip_differences(model, my_tensor, start = 50, stop = num_steps, skip=25, pyramid=True)
                 # zs = diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True)
+                zs = diffusion.multiple_latents(model,my_tensor,start=100,stop=num_steps,pyramid=True)
                 zs_list.append(zs.to("cpu"))
 
             zs_list = torch.cat(zs_list, dim=0)
@@ -89,13 +71,12 @@ def main():
             my_mean = torch.permute(my_mean, (0, 2, 3, 4, 1))
             my_mean = my_mean.to(device)
             my_mean, label = accelerator.gather_for_metrics((my_mean, label))
-            my_labels = torch.cat((my_labels, label.to("cpu")), dim=0)
-            my_volume = torch.cat((my_volume, my_mean.to("cpu")), dim=0)
+            my_labels.append(label.type(torch.bool).to("cpu"))
+            my_volume.append(my_mean.to("cpu"))
 
         if accelerator.is_main_process:
-            if not torch.count_nonzero(my_labels[0]):
-                my_labels = my_labels[1:]
-                my_volume = my_volume[1:]
+            my_volume = torch.cat(my_volume, dim=0)
+            my_labels = torch.cat(my_labels,dim=0)
             my_mask = torch.max(my_volume, dim=1)[0]
             my_mask = median_filter_3D(my_mask)
             my_labels = my_labels.contiguous()

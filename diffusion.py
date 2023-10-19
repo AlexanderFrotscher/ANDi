@@ -336,6 +336,66 @@ class Diffusion:
                 zs[:, i - start] = z_t
         return zs
 
+    def multiple_latents(self, model, images, start=100, stop=None, num_latents = 3, pyramid=False):
+        if stop == None:
+            stop = self.noise_steps
+        if start == 0:
+            start = 1
+        num_images = images.shape[0]
+        model.eval()
+        with torch.no_grad():
+            # First, sample from the forward process
+            xts = torch.zeros(
+                (
+                    num_images,
+                    stop - start,
+                    num_latents,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            zs = torch.zeros(
+                (
+                    num_images,
+                    stop - start,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            #sigma_t = torch.zeros(
+            #    (
+            #        num_images,
+            #        stop - start,
+            #        images.shape[1],
+            #        images.shape[2],
+            #        images.shape[3],
+            #    )
+            #).to(self.device)
+            for i in tqdm(reversed(range(start, stop)), position=0):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                for j in range(num_latents):
+                    x_t, noise = self.noise_images(images, t, pyramid=pyramid)
+                    xts[:, i - start, j] = x_t
+
+            # calculate the differences
+            for i in tqdm(reversed(range(start, stop)), position=0):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                z_t_list = []
+                for j in range(num_latents):
+                    x_t = xts[:, i - start, j]
+                    predicted_noise = model(x_t, t)
+                    mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
+                    mean = self.ddpm_mean_t(x_t, t, x_0=images)
+                    # what was supposed to be predicted and what is predicted
+                    z_t = (mean - mu_t) ** 2
+                    z_t_list.append(z_t)
+                zt = torch.cat(z_t_list,dim=0)
+                zs[:, i - start] = torch.mean(zt,dim=0,keepdim=True)
+                #sigma_t[:, i - start] = torch.sqrt(torch.var(zt,dim=0,keepdim=True))
+        return zs
+
     # initial idea of using z_t -> does not work well
     def guide_restoration(self, model, xts, zs, cfg_scale=1.5, noise_scale=0.5):
         model.eval()
