@@ -55,7 +55,8 @@ def main():
             test = image[:, 0]
             my_mask = torch.where(test > key, 1.0, 0.0)
             my_mask = my_mask.type(torch.bool).to(device)
-            dice_scores_mask[key].extend([dice(my_mask, label)])
+            dice_scores_mask[key].extend([float(x) for x in dice(my_mask, label)])
+            dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
 
     # use best threshold with post-processing
     my_score = []
@@ -72,7 +73,8 @@ def main():
         my_auprs["aupr post"].extend([aupr])
         my_mask = torch.where(my_mask > my_thresh, 1.0, 0.0)
         my_mask = my_mask.type(torch.bool).to(device)
-        my_score.extend([dice(my_mask, label)])
+        my_score.extend([float(x) for x in dice(my_mask, label)])
+        my_score = np.mean(np.asarray(my_score))
 
     dice_scores_mask[f"{my_thresh}_cc"] = my_score
     for key in my_auprs:
@@ -82,13 +84,17 @@ def main():
     df_mask.to_csv("/mnt/lustre/baumgartner/bkc035/data/BraTS2021/dice_threshold.csv")
 
 
-def dice(pred, target):
+def dice_stitch(pred, target):
     pred_sum = pred.view(-1).sum()
     target_sum = target.view(-1).sum()
     intersection = pred.view(-1).float() @ target.view(-1).float()
     dice = (2 * intersection) / (pred_sum + target_sum)
     return dice
 
+def dice(pred, truth):
+    num = 2 * ((pred * truth).sum(dim=(1, 2, 3)).type(torch.float))
+    den = (pred.sum(dim=(1, 2, 3)) + truth.sum(dim=(1, 2, 3))).type(torch.float)
+    return num / den
 
 def connected_components_3d(volume):
     # shape [b, d, h, w], treat every sample in batch independently

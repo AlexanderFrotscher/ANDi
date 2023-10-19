@@ -89,6 +89,9 @@ def main():
             my_volume = torch.cat((my_volume, prediction.to("cpu")), dim=0)
 
         if accelerator.is_main_process:
+            if not torch.count_nonzero(my_labels[0]):
+                my_labels = my_labels[1:]
+                my_volume = my_volume[1:]
             my_volume = torch.max(my_volume,dim=1)[0]
             my_labels = my_labels.contiguous()
             my_volume = median_filter_3D(my_volume)
@@ -98,7 +101,8 @@ def main():
             for key in dice_scores_mask:
                 segmentation = torch.where(my_mask > key, 1.0, 0.0)
                 segmentation = segmentation.type(torch.bool)
-                dice_scores_mask[key].extend([dice(segmentation, my_labels)])
+                dice_scores_mask[key].extend([float(x) for x in dice(segmentation, my_labels)])
+                dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
 
             dice_scores_mask[f"AUPRC"] = aupr
             df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
