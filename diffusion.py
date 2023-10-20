@@ -422,7 +422,6 @@ class Diffusion:
                 x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * (
                     noise_scale * noise + (1 - noise_scale) * zs[:, i - 1]
                 )
-        model.train()
         return x
 
     def ano_ddpm(self, model, images, num_steps):
@@ -440,5 +439,4 @@ class Diffusion:
                 else:
                     noise = torch.zeros_like(x)
                 x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
-        model.train()
         return x
