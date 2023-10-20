@@ -382,17 +382,20 @@ class Diffusion:
             # calculate the differences
             for i in tqdm(reversed(range(start, stop)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                z_t_list = []
+                mu_t_list = torch.zeros(num_images,num_latents,images.shape[1],images.shape[2],images.shape[3])
+                mean_list = torch.zeros(num_images,num_latents,images.shape[1],images.shape[2],images.shape[3])
                 for j in range(num_latents):
                     x_t = xts[:, i - start, j]
                     predicted_noise = model(x_t, t)
                     mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                     mean = self.ddpm_mean_t(x_t, t, x_0=images)
                     # what was supposed to be predicted and what is predicted
-                    z_t = (mean - mu_t) ** 2
-                    z_t_list.append(z_t)
-                zt = torch.cat(z_t_list,dim=0)
-                zs[:, i - start] = torch.mean(zt,dim=0,keepdim=True)
+                    #z_t = (mean - mu_t) ** 2
+                    mu_t_list[:,j] = mu_t
+                    mean_list[:,j] = mean
+                my_mu_t = torch.mean(mu_t,dim=1)
+                my_mean = torch.mean(mean_list,dim=1)
+                zs[:, i - start] = (my_mean-my_mu_t)**2
                 #sigma_t[:, i - start] = torch.sqrt(torch.var(zt,dim=0,keepdim=True))
         return zs
 
