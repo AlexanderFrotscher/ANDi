@@ -2,6 +2,11 @@ __author__ = "Alexander Frotscher"
 __email__ = "alexander.frotscher@student.uni-tuebingen.de"
 
 import argparse
+import os.path
+import sys
+
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 
 from accelerate import Accelerator, DistributedDataParallelKwargs
 import lpips
