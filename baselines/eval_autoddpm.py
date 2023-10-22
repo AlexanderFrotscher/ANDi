@@ -68,6 +68,7 @@ def main():
             .type(torch.bool)
             .to("cpu")
         )
+        all_masks = []
         for i, (image, label) in enumerate(pbar):
             image = (image * 2) - 1
             num_steps = 200
@@ -88,8 +89,8 @@ def main():
                 residual = (my_tensor - pseudo_healthy).abs()
 
                 #Steps for first mask
-                tripple_health = torch.zeros((size_splits,my_tensor.shape[1],3,my_tensor.shape[2],my_tensor.shape[3])).to(device)
-                tripple_pseudo = torch.zeros((size_splits,my_tensor.shape[1],3,my_tensor.shape[2],my_tensor.shape[3])).to(device)
+                tripple_health = torch.zeros((my_tensor.shape[0],my_tensor.shape[1],3,my_tensor.shape[2],my_tensor.shape[3])).to(device)
+                tripple_pseudo = torch.zeros((my_tensor.shape[0],my_tensor.shape[1],3,my_tensor.shape[2],my_tensor.shape[3])).to(device)
                 for k in range(3):
                     tripple_health[:,:,k] = my_tensor
                     tripple_pseudo[:,:,k] = pseudo_healthy
@@ -106,11 +107,10 @@ def main():
                 
                 residual = (residual/my_quantile).clamp(0,1)
                 first_mask = my_lpips_mask * residual
+                all_masks.append(first_mask.to('cpu'))
                 my_mask = torch.where(first_mask > masking_threshold, torch.ones_like(first_mask), torch.zeros_like(first_mask))
                 my_mask = dilate_masks(my_mask)
 
-                mask_threshold = np.percentile(first_mask.cpu().detach().numpy(), 95).mean()
-                print(mask_threshold)
 
                 image_masked = (1 - my_mask) * my_tensor
 
@@ -153,6 +153,9 @@ def main():
             dice_scores_mask[f"AUPRC"] = aupr
             df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
             df_mask.to_csv("/mnt/qb/work/baumgartner/bkc035/auto_ddpm.csv")
+            all_masks = torch.cat(all_masks,dim=0)
+            mask_threshold = np.percentile(all_masks.cpu().detach().numpy(), 95).mean()
+            print(mask_threshold)
 
 
 def lpips_loss(l_pips_sq, anomaly_img, ph_img, retPerLayer=False):
