@@ -88,10 +88,24 @@ def main():
                 residual = (my_tensor - pseudo_healthy).abs()
 
                 #Steps for first mask
-                lpips_mask = lpips_loss(my_lpips,my_tensor, pseudo_healthy, retPerLayer=False)
-                my_quantile = torch.quantile(residual,0.95)
+                tripple_health = torch.zeros((size_splits,my_tensor.shape[1],3,my_tensor.shape[2],my_tensor.shape[3])).to(device)
+                tripple_pseudo = torch.zeros((size_splits,my_tensor.shape[1],3,my_tensor.shape[2],my_tensor.shape[3])).to(device)
+                for k in range(3):
+                    tripple_health[:,:,k] = my_tensor
+                    tripple_pseudo[:,:,k] = pseudo_healthy
+                my_lpips_mask = torch.zeros_like(my_tensor).to(device)
+                for k in range(my_tensor.shape[1]):
+                    lpips_mask = lpips_loss(my_lpips,tripple_health[:,k], tripple_pseudo[:,k], retPerLayer=False)
+                    my_lpips_mask[:,k] = lpips_mask[:,0]
+
+                # calculate quantile for each image and modality individually
+                my_quantile = torch.zeros_like(residual).to(device)
+                for k in range(my_quantile.shape[0]):
+                    for n in range(my_quantile.shape[1]):
+                        my_quantile[k,n] = torch.quantile(residual[k,n],0.95)
+                
                 residual = (residual/my_quantile).clamp(0,1)
-                first_mask = lpips_mask * residual
+                first_mask = my_lpips_mask * residual
                 my_mask = torch.where(first_mask > masking_threshold, torch.ones_like(first_mask), torch.zeros_like(first_mask))
                 my_mask = dilate_masks(my_mask)
 
@@ -100,9 +114,9 @@ def main():
                 x_inpaint = inpainting_loop(model,diffusion,device,image_masked,pseudo_healthy,my_mask,num_inpainting,resample_steps)
                 residual = (my_tensor - x_inpaint.clamp(-1,1)).abs()
 
-                prediction = residual * first_mask
+                anomaly_score = residual * first_mask
                 
-                prediction.append(prediction.to("cpu"))
+                prediction.append(anomaly_score.to("cpu"))
 
             prediction = torch.cat(prediction, dim=0)
             prediction = prediction.view(
@@ -119,8 +133,11 @@ def main():
             my_volume = torch.cat((my_volume, prediction.to("cpu")), dim=0)
 
         if accelerator.is_main_process:
+            if not torch.count_nonzero(my_labels[0]):
+                my_labels = my_labels[1:]
+                my_volume = my_volume[1:]
             my_mask = torch.max(my_volume, dim=1)[0]
-            my_mask = median_filter_3D(my_mask)
+            #my_mask = median_filter_3D(my_mask)
             my_labels = my_labels.contiguous()
             my_mask = norm_tensor(my_mask)
             my_mask = my_mask.contiguous()
@@ -132,7 +149,7 @@ def main():
 
             dice_scores_mask[f"AUPRC"] = aupr
             df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
-            df_mask.to_csv("/mnt/qb/work/baumgartner/bkc035/mask_3D.csv")
+            df_mask.to_csv("/mnt/qb/work/baumgartner/bkc035/auto_ddpm.csv")
 
 
 def lpips_loss(l_pips_sq, anomaly_img, ph_img, retPerLayer=False):
