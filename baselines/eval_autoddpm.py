@@ -73,7 +73,7 @@ def main():
             image = (image * 2) - 1
             num_steps = 200
             num_inpainting = 50
-            masking_threshold = 0.13
+            masking_threshold = 0.07
             resample_steps = 5
             size_splits = 50
             num_volumes = image.shape[0]
@@ -148,7 +148,8 @@ def main():
             for key in dice_scores_mask:
                 segmentation = torch.where(my_mask > key, 1.0, 0.0)
                 segmentation = segmentation.type(torch.bool)
-                dice_scores_mask[key].extend([dice(segmentation, my_labels)])
+                dice_scores_mask[key].extend([float(x) for x in dice(segmentation, my_labels)])
+                dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
 
             dice_scores_mask[f"AUPRC"] = aupr
             df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
