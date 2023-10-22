@@ -12,6 +12,7 @@ sys.path.append(
 
 from accelerate import Accelerator
 from dae_unet import *
+import lpips
 from sklearn.metrics import average_precision_score
 
 from utils import *
@@ -38,6 +39,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
+    my_lpips = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(device)
     threshold_diff = [x / 1000 for x in range(1, 400)]
     dice_scores_mask = {i: [] for i in threshold_diff}
     model.eval()
@@ -74,13 +76,26 @@ def main():
             prediction = []
             for my_tensor in split:
                 pseudo_img = model(my_tensor)
-                mask = my_tensor.sum(dim=1, keepdim=True) > 0.01
-                # Erode the mask a bit to remove some of the reconstruction errors at the edges.
-                mask = (F.avg_pool2d(mask.float(), kernel_size=5, stride=1, padding=2) > 0.95)
-                my_diff = ((my_tensor - pseudo_img) * mask).abs()
-                prediction.append(my_diff.to('cpu'))
-            
-            prediction = torch.cat(prediction,dim=0)
+                prediction.append(pseudo_img.to('cpu'))
+
+            pseudo_healthy = torch.cat(prediction,dim=0)
+            # Erode the mask a bit to remove some of the reconstruction errors at the edges.
+            mask = image.sum(dim=1, keepdim=True) > 0.01
+            mask = (F.avg_pool2d(mask.float(), kernel_size=5, stride=1, padding=2) > 0.95)
+            my_diff = ((image - pseudo_healthy) * mask).abs()
+            tripple_health = torch.zeros((num_slices,image.shape[1],3,image.shape[2],image.shape[3])).to(device)
+            tripple_pseudo = torch.zeros((num_slices,image.shape[1],3,image.shape[2],image.shape[3])).to(device)
+            for k in range(3):
+                tripple_health[:,:,k] = image
+                tripple_pseudo[:,:,k] = pseudo_healthy
+            my_lpips_mask = torch.zeros_like(image).to(device)
+            for k in range(image.shape[1]):
+                lpips_mask = lpips_loss(my_lpips,tripple_health[:,k], tripple_pseudo[:,k], retPerLayer=False)
+                my_lpips_mask[:,k] = lpips_mask[:,0]
+            my_lpips_mask = my_lpips_mask * mask
+
+            prediction = my_diff * my_lpips_mask
+
             prediction = prediction.view(num_volumes,num_slices,prediction.shape[1],prediction.shape[2],prediction.shape[3])
             prediction = torch.permute(prediction,(0,2,3,4,1))
             prediction = prediction.to(device)
@@ -108,6 +123,22 @@ def main():
             df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
             df_mask.to_csv("/mnt/qb/work/baumgartner/bkc035/dae_result.csv")
 
+
+def lpips_loss(l_pips_sq, anomaly_img, ph_img, retPerLayer=False):
+        """
+        :param anomaly_img: anomaly image
+        :param ph_img: pseudo-healthy image
+        :param retPerLayer: whether to return the loss per layer
+        :return: LPIPS loss
+        """
+        if len(ph_img.shape) == 2:
+            ph_img = torch.unsqueeze(torch.unsqueeze(ph_img, 0), 0)
+            anomaly_img = torch.unsqueeze(torch.unsqueeze(anomaly_img, 0), 0)
+
+        loss_lpips = l_pips_sq(anomaly_img, ph_img, normalize=True, retPerLayer=retPerLayer)
+        if retPerLayer:
+            loss_lpips = loss_lpips[1][0]
+        return loss_lpips
 
 if __name__ == "__main__":
     main()
