@@ -109,6 +109,9 @@ def main():
                 my_mask = torch.where(first_mask > masking_threshold, torch.ones_like(first_mask), torch.zeros_like(first_mask))
                 my_mask = dilate_masks(my_mask)
 
+                mask_threshold = np.percentile(first_mask.cpu().detach().numpy(), 95).mean()
+                print(mask_threshold)
+
                 image_masked = (1 - my_mask) * my_tensor
 
                 x_inpaint = inpainting_loop(model,diffusion,device,image_masked,pseudo_healthy,my_mask,num_inpainting,resample_steps)
