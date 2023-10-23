@@ -19,6 +19,8 @@ class Diffusion:
         self.img_size = img_size
         self.device = device
 
+        self.lpips = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(self.device)
+
     def linear_noise_schedule(self):
         beta_start = 1e-4
         beta_end = 0.02
@@ -399,7 +401,6 @@ class Diffusion:
         return zs
 
     def dpm_lpips(self, model, images, start=100, stop=None, skip = 25, pyramid=False):
-        my_lpips = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(self.device)
         if stop == None:
             stop = self.noise_steps
         if start == 0:
@@ -448,7 +449,7 @@ class Diffusion:
                         tripple_pseudo[:,:,k] = predicted_chain
                     my_lpips_mask = torch.zeros_like(images).to(self.device)
                     for k in range(images.shape[1]):
-                        lpips_mask = lpips_loss(my_lpips,tripple_health[:,k], tripple_pseudo[:,k], retPerLayer=False)
+                        lpips_mask = lpips_loss(self.lpips,tripple_health[:,k], tripple_pseudo[:,k], retPerLayer=False)
                         my_lpips_mask[:,k] = lpips_mask[:,0]
                     my_lpips_mask[images == -1] = 0
                     zs[:, int((i - start) / skip)] = (correct_chain - predicted_chain)**2 * my_lpips_mask
