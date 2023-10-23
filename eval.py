@@ -36,6 +36,7 @@ def main():
     pbar = tqdm(dataloader)
     threshold_test = [round(x, 3) for x in np.arange(0.01, 0.81, 0.01)]
     dice_scores_mask = {i: [] for i in threshold_test}
+    my_lpips = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(device)
 
     with torch.no_grad():
         my_volume = torch.zeros(
@@ -74,12 +75,26 @@ def main():
                 # zs = diffusion.dpm_differences(model, my_tensor, start=100, stop=num_steps, pyramid=True)
                 # zs = diffusion.skip_differences(model, my_tensor, start = 50, stop = num_steps, skip=25, pyramid=True)
                 # zs = diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True)
-                zs = diffusion.multiple_latents(model,my_tensor,start=100,stop=num_steps,pyramid=True)
-                zs_list.append(zs.to("cpu"))
+                # zs = diffusion.multiple_latents(model,my_tensor,start=100,stop=num_steps,pyramid=True)
+                zs = diffusion.dpm_lpips(model,my_tensor,start=100,stop=num_steps,skip=1,pyramid=True).to('cpu')
+                zs_list.append(zs)
 
             zs_list = torch.cat(zs_list, dim=0)
-            # my_mean = torch.mean(zs, dim=1)
-            my_mean = gmean(zs_list, dim=1)
+            my_square = zs_list**2
+            my_mean = torch.mean(zs_list, dim=1)
+            diff = gmean(my_square, dim=1)
+            tripple_health = torch.zeros((num_slices,image.shape[1],3,image.shape[2],image.shape[3])).to(device)
+            tripple_pseudo = torch.zeros((num_slices,image.shape[1],3,image.shape[2],image.shape[3])).to(device)
+            for k in range(3):
+                tripple_health[:,:,k] = image
+                tripple_pseudo[:,:,k] = my_mean
+            my_lpips_mask = torch.zeros_like(image).to(device)
+            for k in range(image.shape[1]):
+                lpips_mask = lpips_loss(my_lpips,tripple_health[:,k], tripple_pseudo[:,k], retPerLayer=False)
+                my_lpips_mask[:,k] = lpips_mask[:,0]
+            my_mean = my_lpips_mask.to('cpu') * diff
+
+
             my_mean = my_mean.view(
                 num_volumes,
                 num_slices,

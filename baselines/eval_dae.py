@@ -79,6 +79,7 @@ def main():
                 prediction.append(pseudo_img.to('cpu'))
 
             pseudo_healthy = torch.cat(prediction,dim=0)
+            pseudo_healthy = pseudo_healthy.to(device)
             # Erode the mask a bit to remove some of the reconstruction errors at the edges.
             mask = image.sum(dim=1, keepdim=True) > 0.01
             mask = (F.avg_pool2d(mask.float(), kernel_size=5, stride=1, padding=2) > 0.95)

@@ -19,7 +19,7 @@ class Diffusion:
         self.img_size = img_size
         self.device = device
 
-        self.lpips = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(self.device)
+        #self.lpips = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(self.device)
 
     def linear_noise_schedule(self):
         beta_start = 1e-4
@@ -392,7 +392,7 @@ class Diffusion:
                     mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                     mean = self.ddpm_mean_t(x_t, t, x_0=images)
                     # what was supposed to be predicted and what is predicted
-                    z_t = (mean - mu_t)
+                    z_t = (mu_t)
                     mu_t_list[:,j] = z_t
                     #mean_list[:,j] = mean
                 my_mu_t = torch.mean(mu_t_list,dim=1)
@@ -442,17 +442,17 @@ class Diffusion:
                 predicted_chain = self.ddpm_mu_t(predicted_chain, predicted_noise, t)
                 correct_chain = self.ddpm_mean_t(correct_chain, t, x_0=images)
                 if i % skip == 0 or i == 1:
-                    tripple_health = torch.zeros((num_images,images.shape[1],3,images.shape[2],images.shape[3])).to(self.device)
-                    tripple_pseudo = torch.zeros((num_images,images.shape[1],3,images.shape[2],images.shape[3])).to(self.device)
-                    for k in range(3):
-                        tripple_health[:,:,k] = correct_chain
-                        tripple_pseudo[:,:,k] = predicted_chain
-                    my_lpips_mask = torch.zeros_like(images).to(self.device)
-                    for k in range(images.shape[1]):
-                        lpips_mask = lpips_loss(self.lpips,tripple_health[:,k], tripple_pseudo[:,k], retPerLayer=False)
-                        my_lpips_mask[:,k] = lpips_mask[:,0]
-                    my_lpips_mask[images == -1] = 0
-                    zs[:, int((i - start) / skip)] = (correct_chain - predicted_chain)**2 * my_lpips_mask
+                    #tripple_health = torch.zeros((num_images,images.shape[1],3,images.shape[2],images.shape[3])).to(self.device)
+                    #tripple_pseudo = torch.zeros((num_images,images.shape[1],3,images.shape[2],images.shape[3])).to(self.device)
+                    #for k in range(3):
+                    #    tripple_health[:,:,k] = correct_chain
+                    #    tripple_pseudo[:,:,k] = predicted_chain
+                    #my_lpips_mask = torch.zeros_like(images).to(self.device)
+                    #for k in range(images.shape[1]):
+                    #    lpips_mask = lpips_loss(self.lpips,tripple_health[:,k], tripple_pseudo[:,k], retPerLayer=False)
+                    #    my_lpips_mask[:,k] = lpips_mask[:,0]
+                    #my_lpips_mask[images == -1] = 0
+                    zs[:, int((i - start) / skip)] = (correct_chain - predicted_chain) #**2 * my_lpips_mask
                     predicted_chain = xts[:, i - start]
                     correct_chain = xts[:, i - start]
         return zs
