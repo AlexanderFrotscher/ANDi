@@ -19,6 +19,7 @@ import torchvision
 from matplotlib import pyplot as plt
 from PIL import Image
 from scipy.ndimage import median_filter
+from scipy.ndimage import grey_dilation
 from scipy.signal import medfilt2d
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
@@ -316,6 +317,23 @@ def dice(pred, truth):
     den = (pred.sum(dim=(1, 2, 3)) + truth.sum(dim=(1, 2, 3))).type(torch.float)
     return num / den
 
+def normalized_dice(pred, target):
+    r = 0.01
+    im_sum = pred.sum() + target.sum()
+    if im_sum == 0:
+        return 1.0
+    else:
+        if target.sum() == 0:
+            k = 1.0
+        else:
+            k = (1 - r) * target.sum() / (r * (len(target.view(-1)) - target.sum()))
+        tp = torch.sum(pred[target == 1])
+        fp = torch.sum(pred[target == 0])
+        fn = torch.sum(target[pred == 0])
+        fp_scaled = k * fp
+        dsc_norm = 2. * tp / (fp_scaled + 2. * tp + fn)
+        return dsc_norm
+
 
 def coarse_noise(n, channels, device, noise_size=16, noise_std=0.2, image_size=128):
     noise = torch.normal(
@@ -378,6 +396,13 @@ def median_filter_3D(volume, kernelsize=5):
     return torch.Tensor(volume)
 
 
+def my_dilation(volume, kernelsize=3):
+    volume = volume.cpu().numpy()
+    pbar = tqdm(range(len(volume)), desc="Grey Dilation")
+    for i in pbar:
+        volume[i] = grey_dilation(volume[i], size=(kernelsize, kernelsize, kernelsize))
+    return torch.Tensor(volume)
+
 def norm_tensor(tensor):
     my_max = torch.max(tensor)
     my_min = torch.min(tensor)
@@ -385,9 +410,9 @@ def norm_tensor(tensor):
     return my_tensor
 
 
-def gmean(input_x, dim):
+def gmean(input_x, dim, keepdim = False):
     log_x = torch.log(input_x)
-    return torch.exp(torch.mean(log_x, dim=dim))
+    return torch.exp(torch.mean(log_x, dim=dim, keepdim=keepdim))
 
 
 def make_dicts(run_name):
