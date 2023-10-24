@@ -23,7 +23,7 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val_small.csv"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
     args.batch_size = 1
     args.image_size = 128
     args.channels = 4
@@ -39,7 +39,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    my_lpips = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(device)
+    #my_lpips = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(device)
     threshold_diff = [x / 1000 for x in range(1, 400)]
     dice_scores_mask = {i: [] for i in threshold_diff}
     model.eval()
@@ -84,18 +84,18 @@ def main():
             mask = image.sum(dim=1, keepdim=True) > 0.01
             mask = (F.avg_pool2d(mask.float(), kernel_size=5, stride=1, padding=2) > 0.95)
             my_diff = ((image - pseudo_healthy) * mask).abs()
-            tripple_health = torch.zeros((num_slices,image.shape[1],3,image.shape[2],image.shape[3])).to(device)
-            tripple_pseudo = torch.zeros((num_slices,image.shape[1],3,image.shape[2],image.shape[3])).to(device)
-            for k in range(3):
-                tripple_health[:,:,k] = image
-                tripple_pseudo[:,:,k] = pseudo_healthy
-            my_lpips_mask = torch.zeros_like(image).to(device)
-            for k in range(image.shape[1]):
-                lpips_mask = lpips_loss(my_lpips,tripple_health[:,k], tripple_pseudo[:,k], retPerLayer=False)
-                my_lpips_mask[:,k] = lpips_mask[:,0]
-            my_lpips_mask = my_lpips_mask * mask
+            #tripple_health = torch.zeros((num_slices,image.shape[1],3,image.shape[2],image.shape[3])).to(device)
+            #tripple_pseudo = torch.zeros((num_slices,image.shape[1],3,image.shape[2],image.shape[3])).to(device)
+            #for k in range(3):
+            #    tripple_health[:,:,k] = image
+            #    tripple_pseudo[:,:,k] = pseudo_healthy
+            #my_lpips_mask = torch.zeros_like(image).to(device)
+            #for k in range(image.shape[1]):
+            #    lpips_mask = lpips_loss(my_lpips,tripple_health[:,k], tripple_pseudo[:,k], retPerLayer=False)
+            #    my_lpips_mask[:,k] = lpips_mask[:,0]
+            #my_lpips_mask = my_lpips_mask * mask
 
-            prediction = my_diff * my_lpips_mask
+            prediction = my_diff
 
             prediction = prediction.view(num_volumes,num_slices,prediction.shape[1],prediction.shape[2],prediction.shape[3])
             prediction = torch.permute(prediction,(0,2,3,4,1))
