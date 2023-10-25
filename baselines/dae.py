@@ -90,10 +90,10 @@ def main():
     args.image_size = 128
     args.channels = 4
     args.dataset_path = (
-        "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
+        "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
     )
     args.lr = 0.0001
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_train.csv"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_train.csv"
     args.train_continue = False
     args.current_model = (
         "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/DAE/8_ckpt.pt"
