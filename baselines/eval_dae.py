@@ -7,7 +7,8 @@ import os.path
 import sys
 
 sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
+    os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
+)
 
 
 from accelerate import Accelerator
@@ -30,17 +31,16 @@ def main():
 
     accelerator = Accelerator()
     device = accelerator.device
-    model = UNet(args.channels,args.channels,depth=4,wf=6,padding=True).to(device)
+    model = UNet(args.channels, args.channels, depth=4, wf=6, padding=True).to(device)
     ckpt = torch.load(
-        "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data/models/DAE/16_ckpt.pt"
-     )
+        "/mnt/qb/work/baumgartner/bkc035/normative-diffusion/baselines/models/DAE/12_ckpt.pt"
+    )
     model.load_state_dict(ckpt)
     dataloader = Brats_Volume(args, hist=False)
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    #my_lpips = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(device)
-    threshold_diff = [x / 1000 for x in range(1, 400)]
+    threshold_diff = [x / 1000 for x in range(1, 90)]
     dice_scores_mask = {i: [] for i in threshold_diff}
     model.eval()
     with torch.no_grad():
@@ -70,35 +70,31 @@ def main():
             num_slices = image.shape[4]
             size_splits = 155
 
-            image = torch.permute(image,(0,4,1,2,3))
-            image = image.view(-1,image.shape[2],image.shape[3],image.shape[4])
-            split = torch.split(image,size_splits)
+            image = torch.permute(image, (0, 4, 1, 2, 3))
+            image = image.view(-1, image.shape[2], image.shape[3], image.shape[4])
+            split = torch.split(image, size_splits)
             prediction = []
             for my_tensor in split:
                 pseudo_img = model(my_tensor)
-                prediction.append(pseudo_img.to('cpu'))
+                # Erode the mask a bit to remove some of the reconstruction errors at the edges.
+                mask = my_tensor.sum(dim=1, keepdim=True) > 0.01
+                mask = (
+                    F.avg_pool2d(mask.float(), kernel_size=5, stride=1, padding=2)
+                    > 0.95
+                )
+                my_diff = ((my_tensor - pseudo_img) * mask).abs()
+                prediction.append(my_diff.to("cpu"))
 
-            pseudo_healthy = torch.cat(prediction,dim=0)
-            pseudo_healthy = pseudo_healthy.to(device)
-            # Erode the mask a bit to remove some of the reconstruction errors at the edges.
-            mask = image.sum(dim=1, keepdim=True) > 0.01
-            mask = (F.avg_pool2d(mask.float(), kernel_size=5, stride=1, padding=2) > 0.95)
-            my_diff = ((image - pseudo_healthy) * mask).abs()
-            #tripple_health = torch.zeros((num_slices,image.shape[1],3,image.shape[2],image.shape[3])).to(device)
-            #tripple_pseudo = torch.zeros((num_slices,image.shape[1],3,image.shape[2],image.shape[3])).to(device)
-            #for k in range(3):
-            #    tripple_health[:,:,k] = image
-            #    tripple_pseudo[:,:,k] = pseudo_healthy
-            #my_lpips_mask = torch.zeros_like(image).to(device)
-            #for k in range(image.shape[1]):
-            #    lpips_mask = lpips_loss(my_lpips,tripple_health[:,k], tripple_pseudo[:,k], retPerLayer=False)
-            #    my_lpips_mask[:,k] = lpips_mask[:,0]
-            #my_lpips_mask = my_lpips_mask * mask
+            prediction = torch.cat(prediction, dim=0)
 
-            prediction = my_diff
-
-            prediction = prediction.view(num_volumes,num_slices,prediction.shape[1],prediction.shape[2],prediction.shape[3])
-            prediction = torch.permute(prediction,(0,2,3,4,1))
+            prediction = prediction.view(
+                num_volumes,
+                num_slices,
+                prediction.shape[1],
+                prediction.shape[2],
+                prediction.shape[3],
+            )
+            prediction = torch.permute(prediction, (0, 2, 3, 4, 1))
             prediction = prediction.to(device)
             prediction, label = accelerator.gather_for_metrics((prediction, label))
             my_labels = torch.cat((my_labels, label.to("cpu")), dim=0)
@@ -108,38 +104,22 @@ def main():
             if not torch.count_nonzero(my_labels[0]):
                 my_labels = my_labels[1:]
                 my_volume = my_volume[1:]
-            my_volume = torch.max(my_volume,dim=1)[0]
+            my_volume = torch.max(my_volume, dim=1)[0]
             my_labels = my_labels.contiguous()
             my_volume = median_filter_3D(my_volume)
-            #my_volume = norm_tensor(my_volume)
+            # my_volume = norm_tensor(my_volume)
             my_mask = my_volume.contiguous()
             aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
             for key in dice_scores_mask:
                 segmentation = torch.where(my_mask > key, 1.0, 0.0)
                 segmentation = segmentation.type(torch.bool)
-                dice_scores_mask[key].extend([float(x) for x in dice(segmentation, my_labels)])
-                dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
+                dice_scores_mask[key].extend([dice_stitch(segmentation, my_labels)])
+                # dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
 
             dice_scores_mask[f"AUPRC"] = aupr
             df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
             df_mask.to_csv("/mnt/qb/work/baumgartner/bkc035/dae_result.csv")
 
-
-def lpips_loss(l_pips_sq, anomaly_img, ph_img, retPerLayer=False):
-        """
-        :param anomaly_img: anomaly image
-        :param ph_img: pseudo-healthy image
-        :param retPerLayer: whether to return the loss per layer
-        :return: LPIPS loss
-        """
-        if len(ph_img.shape) == 2:
-            ph_img = torch.unsqueeze(torch.unsqueeze(ph_img, 0), 0)
-            anomaly_img = torch.unsqueeze(torch.unsqueeze(anomaly_img, 0), 0)
-
-        loss_lpips = l_pips_sq(anomaly_img, ph_img, normalize=True, retPerLayer=retPerLayer)
-        if retPerLayer:
-            loss_lpips = loss_lpips[1][0]
-        return loss_lpips
 
 if __name__ == "__main__":
     main()
