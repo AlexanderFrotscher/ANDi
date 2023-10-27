@@ -5,7 +5,7 @@ __email__ = "alexander.frotscher@student.uni-tuebingen.de"
 This code is based on @dome272 implementation of DDPM's
 https://github.com/dome272/Diffusion-Models-pytorch
 """
-import lpips
+
 from utils import *
 
 class Diffusion:
@@ -19,7 +19,6 @@ class Diffusion:
         self.img_size = img_size
         self.device = device
 
-        #self.lpips = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(self.device)
 
     def linear_noise_schedule(self):
         beta_start = 1e-4
@@ -88,7 +87,7 @@ class Diffusion:
                 t = (torch.ones(n) * i).long().to(self.device)
                 predicted_noise = model(x, t)
                 if cfg_scale > 0:
-                    uncond_predicted_noise = model(x, t, None)
+                    uncond_predicted_noise = model(x, t, labels)
                     predicted_noise = torch.lerp(
                         uncond_predicted_noise, predicted_noise, cfg_scale
                     )
@@ -337,125 +336,6 @@ class Diffusion:
                 z_t = (predicted_noise - true_noise) ** 2
                 zs[:, i - start] = z_t
         return zs
-
-    def multiple_latents(self, model, images, start=100, stop=None, num_latents = 3, pyramid=False):
-        if stop == None:
-            stop = self.noise_steps
-        if start == 0:
-            start = 1
-        num_images = images.shape[0]
-        model.eval()
-        with torch.no_grad():
-            # First, sample from the forward process
-            xts = torch.zeros(
-                (
-                    num_images,
-                    stop - start,
-                    num_latents,
-                    images.shape[1],
-                    images.shape[2],
-                    images.shape[3],
-                )
-            ).to(self.device)
-            zs = torch.zeros(
-                (
-                    num_images,
-                    stop - start,
-                    images.shape[1],
-                    images.shape[2],
-                    images.shape[3],
-                )
-            ).to(self.device)
-            #sigma_t = torch.zeros(
-            #    (
-            #        num_images,
-            #        stop - start,
-            #        images.shape[1],
-            #        images.shape[2],
-            #        images.shape[3],
-            #    )
-            #).to(self.device)
-            for i in tqdm(reversed(range(start, stop)), position=0):
-                t = (torch.ones(num_images) * i).long().to(self.device)
-                for j in range(num_latents):
-                    x_t, noise = self.noise_images(images, t, pyramid=pyramid)
-                    xts[:, i - start, j] = x_t
-
-            # calculate the differences
-            for i in tqdm(reversed(range(start, stop)), position=0):
-                t = (torch.ones(num_images) * i).long().to(self.device)
-                mu_t_list = torch.zeros(num_images,num_latents,images.shape[1],images.shape[2],images.shape[3])#.to(self.device)
-                #mean_list = torch.zeros(num_images,num_latents,images.shape[1],images.shape[2],images.shape[3])#.to(self.device)
-                for j in range(num_latents):
-                    x_t = xts[:, i - start, j]
-                    predicted_noise = model(x_t, t)
-                    mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
-                    mean = self.ddpm_mean_t(x_t, t, x_0=images)
-                    # what was supposed to be predicted and what is predicted
-                    z_t = (mu_t)
-                    mu_t_list[:,j] = z_t
-                    #mean_list[:,j] = mean
-                my_mu_t = torch.mean(mu_t_list,dim=1)
-                #my_mean = torch.mean(mean_list,dim=1)
-                zs[:, i - start] = (my_mu_t)
-        return zs
-
-    def dpm_lpips(self, model, images, start=100, stop=None, skip = 25, pyramid=False):
-        if stop == None:
-            stop = self.noise_steps
-        if start == 0:
-            start = 1
-        num_images = images.shape[0]
-        model.eval()
-        with torch.no_grad():
-            # First, sample from the forward process
-            xts = torch.zeros(
-                (
-                    num_images,
-                    stop - start,
-                    images.shape[1],
-                    images.shape[2],
-                    images.shape[3],
-                )
-            ).to(self.device)
-            zs = torch.zeros(
-                (
-                    num_images,
-                    int(((stop - start) / skip)),
-                    images.shape[1],
-                    images.shape[2],
-                    images.shape[3],
-                )
-            ).to(self.device)
-            for i in tqdm(reversed(range(start, stop)), position=0):
-                t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t, noise = self.noise_images(images, t, pyramid=pyramid)
-                xts[:, i - start] = x_t
-
-            correct_chain = xts[:, -1]
-            predicted_chain = xts[:, -1]
-
-            # calculate the differences
-            for i in tqdm(reversed(range(start, stop)), position=0):
-                t = (torch.ones(num_images) * i).long().to(self.device)
-                predicted_noise = model(predicted_chain, t)
-                predicted_chain = self.ddpm_mu_t(predicted_chain, predicted_noise, t)
-                correct_chain = self.ddpm_mean_t(correct_chain, t, x_0=images)
-                if i % skip == 0 or i == 1:
-                    #tripple_health = torch.zeros((num_images,images.shape[1],3,images.shape[2],images.shape[3])).to(self.device)
-                    #tripple_pseudo = torch.zeros((num_images,images.shape[1],3,images.shape[2],images.shape[3])).to(self.device)
-                    #for k in range(3):
-                    #    tripple_health[:,:,k] = correct_chain
-                    #    tripple_pseudo[:,:,k] = predicted_chain
-                    #my_lpips_mask = torch.zeros_like(images).to(self.device)
-                    #for k in range(images.shape[1]):
-                    #    lpips_mask = lpips_loss(self.lpips,tripple_health[:,k], tripple_pseudo[:,k], retPerLayer=False)
-                    #    my_lpips_mask[:,k] = lpips_mask[:,0]
-                    #my_lpips_mask[images == -1] = 0
-                    zs[:, int((i - start) / skip)] = (correct_chain - predicted_chain) #**2 * my_lpips_mask
-                    predicted_chain = xts[:, i - start]
-                    correct_chain = xts[:, i - start]
-        return zs
     
 
     # initial idea of using z_t -> does not work well
@@ -499,20 +379,3 @@ class Diffusion:
                     noise = torch.zeros_like(x)
                 x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
         return x
-    
-
-def lpips_loss(l_pips_sq, anomaly_img, ph_img, retPerLayer=False):
-        """
-        :param anomaly_img: anomaly image
-        :param ph_img: pseudo-healthy image
-        :param retPerLayer: whether to return the loss per layer
-        :return: LPIPS loss
-        """
-        if len(ph_img.shape) == 2:
-            ph_img = torch.unsqueeze(torch.unsqueeze(ph_img, 0), 0)
-            anomaly_img = torch.unsqueeze(torch.unsqueeze(anomaly_img, 0), 0)
-
-        loss_lpips = l_pips_sq(anomaly_img, ph_img, normalize=True, retPerLayer=retPerLayer)
-        if retPerLayer:
-            loss_lpips = loss_lpips[1][0]
-        return loss_lpips

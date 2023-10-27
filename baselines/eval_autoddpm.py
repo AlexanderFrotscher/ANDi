@@ -184,13 +184,15 @@ def dilate_masks(masks):
 
         dilated_masks = torch.zeros_like(masks)
         for i in range(masks.shape[0]):
-            mask = masks[i][0].detach().cpu().numpy()
-            if np.sum(mask) < 1:
-                dilated_masks[i] = masks[i]
-                continue
-            dilated_mask = cv2.dilate(mask, kernel, iterations=1)
-            dilated_mask = torch.from_numpy(dilated_mask).to(masks.device).unsqueeze(dim=0)
-            dilated_masks[i] = dilated_mask
+            mask = masks[i].detach().cpu().numpy()
+            for j in range(masks.shape[1]):
+                my_mask = mask[j]
+                if np.sum(my_mask) < 1:
+                    dilated_masks[i,j] = my_mask
+                    continue
+                dilated_mask = cv2.dilate(my_mask, kernel, iterations=1)
+                dilated_mask = torch.from_numpy(dilated_mask).to(masks.device).unsqueeze(dim=0)
+                dilated_masks[i] = dilated_mask
 
         return dilated_masks
 

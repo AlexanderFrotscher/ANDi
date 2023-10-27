@@ -36,7 +36,6 @@ def main():
     pbar = tqdm(dataloader)
     threshold_test = [round(x, 3) for x in np.arange(0.01, 0.81, 0.01)]
     dice_scores_mask = {i: [] for i in threshold_test}
-    #my_lpips = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(device)
 
     with torch.no_grad():
         my_volume = torch.zeros(
@@ -72,29 +71,13 @@ def main():
             split = torch.split(image, size_splits)
             zs_list = []
             for my_tensor in split:
-                # zs = diffusion.dpm_differences(model, my_tensor, start=100, stop=num_steps, pyramid=True)
-                # zs = diffusion.skip_differences(model, my_tensor, start = 50, stop = num_steps, skip=25, pyramid=True)
-                # zs = diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True)
-                # zs = diffusion.multiple_latents(model,my_tensor,start=100,stop=num_steps,pyramid=True)
-                zs = diffusion.dpm_lpips(model,my_tensor,start=100,stop=num_steps,skip=1,pyramid=True).to('cpu')
+                zs = diffusion.dpm_differences(model, my_tensor, start=100, stop=num_steps, pyramid=True).to('cpu')
+                # zs = diffusion.skip_differences(model, my_tensor, start = 50, stop = num_steps, skip=25, pyramid=True).to('cpu')
+                # zs = diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True).to('cpu')
                 zs_list.append(zs)
 
             zs_list = torch.cat(zs_list, dim=0)
-            my_square = zs_list**2
-            #my_mean = torch.mean(zs_list, dim=1)
-            diff = gmean(my_square, dim=1)
-            #tripple_health = torch.zeros((num_slices,image.shape[1],3,image.shape[2],image.shape[3])).to(device)
-            #tripple_pseudo = torch.zeros((num_slices,image.shape[1],3,image.shape[2],image.shape[3])).to(device)
-            #for k in range(3):
-            #    tripple_health[:,:,k] = image
-            #    tripple_pseudo[:,:,k] = my_mean
-            #my_lpips_mask = torch.zeros_like(image).to(device)
-            #for k in range(image.shape[1]):
-            #    lpips_mask = lpips_loss(my_lpips,tripple_health[:,k], tripple_pseudo[:,k], retPerLayer=False)
-            #    my_lpips_mask[:,k] = lpips_mask[:,0]
-            #my_mean = my_lpips_mask.to('cpu') * diff
-            my_mean = diff
-
+            my_mean = gmean(zs_list,dim=1)
 
             my_mean = my_mean.view(
                 num_volumes,
@@ -115,7 +98,7 @@ def main():
                 my_volume = my_volume[1:]
             my_mask = torch.max(my_volume, dim=1)[0]
             my_mask = median_filter_3D(my_mask)
-            my_mask = my_dilation(my_mask,kernelsize=2)
+            my_mask = my_dilation(my_mask,kernelsize=3)
             my_labels = my_labels.contiguous()
             my_mask = norm_tensor(my_mask)
             my_mask = my_mask.contiguous()
