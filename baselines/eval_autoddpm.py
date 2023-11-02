@@ -23,7 +23,7 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val_small.csv"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
     args.batch_size = 1
     args.image_size = 128
 
@@ -41,7 +41,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.81, 0.01)]
+    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.1, 0.001)]
     dice_scores_mask = {i: [] for i in threshold_test}
 
     my_lpips = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(device)
@@ -71,9 +71,9 @@ def main():
         all_masks = []
         for i, (image, label) in enumerate(pbar):
             image = (image * 2) - 1
-            num_steps = 200
+            num_steps = 300
             num_inpainting = 50
-            masking_threshold = 0.07
+            masking_threshold = 0.124
             resample_steps = 5
             size_splits = 50
             num_volumes = image.shape[0]
@@ -103,7 +103,7 @@ def main():
                 my_quantile = torch.zeros_like(residual).to(device)
                 for k in range(my_quantile.shape[0]):
                     for n in range(my_quantile.shape[1]):
-                        my_quantile[k,n] = torch.quantile(residual[k,n],0.95)
+                        my_quantile[k,n] = torch.quantile(residual[k,n],0.99)
                 
                 residual = (residual/my_quantile).clamp(0,1)
                 first_mask = my_lpips_mask * residual
@@ -118,8 +118,8 @@ def main():
                 residual = (my_tensor - x_inpaint.clamp(-1,1)).abs()
 
                 anomaly_score = residual * first_mask
-                
-                prediction.append(anomaly_score.to("cpu"))
+                anomaly_score = anomaly_score.to('cpu')
+                prediction.append(anomaly_score)
 
             prediction = torch.cat(prediction, dim=0)
             prediction = prediction.view(
@@ -140,7 +140,8 @@ def main():
                 my_labels = my_labels[1:]
                 my_volume = my_volume[1:]
             my_mask = torch.max(my_volume, dim=1)[0]
-            #my_mask = median_filter_3D(my_mask)
+            my_mask = median_filter_3D(my_mask)
+            my_mask = my_dilation(my_mask, kernelsize=3)
             my_labels = my_labels.contiguous()
             my_mask = norm_tensor(my_mask)
             my_mask = my_mask.contiguous()
@@ -155,7 +156,7 @@ def main():
             df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
             df_mask.to_csv("/mnt/qb/work/baumgartner/bkc035/auto_ddpm.csv")
             all_masks = torch.cat(all_masks,dim=0)
-            mask_threshold = np.percentile(all_masks.cpu().detach().numpy(), 95).mean()
+            mask_threshold = np.percentile(all_masks.cpu().detach().numpy(), 99).mean()
             print(mask_threshold)
 
 
@@ -188,11 +189,11 @@ def dilate_masks(masks):
             for j in range(masks.shape[1]):
                 my_mask = mask[j]
                 if np.sum(my_mask) < 1:
-                    dilated_masks[i,j] = my_mask
+                    dilated_masks[i,j] = torch.from_numpy(my_mask).to(masks.device)
                     continue
                 dilated_mask = cv2.dilate(my_mask, kernel, iterations=1)
-                dilated_mask = torch.from_numpy(dilated_mask).to(masks.device).unsqueeze(dim=0)
-                dilated_masks[i] = dilated_mask
+                dilated_mask = torch.from_numpy(dilated_mask).to(masks.device)
+                dilated_masks[i,j] = dilated_mask
 
         return dilated_masks
 

@@ -24,7 +24,7 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val.csv"
     args.batch_size = 1
     args.image_size = 128
     args.channels = 4
@@ -33,14 +33,14 @@ def main():
     device = accelerator.device
     model = UNet(args.channels, args.channels, depth=4, wf=6, padding=True).to(device)
     ckpt = torch.load(
-        "/mnt/qb/work/baumgartner/bkc035/normative-diffusion/baselines/models/DAE/12_ckpt.pt"
+        "/mnt/qb/work/baumgartner/bkc035/normative-diffusion/baselines/models/DAE/2_ckpt.pt"
     )
     model.load_state_dict(ckpt)
     dataloader = Brats_Volume(args, hist=False)
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_diff = [x / 1000 for x in range(1, 90)]
+    threshold_diff = [x / 1000 for x in range(130, 180)]
     dice_scores_mask = {i: [] for i in threshold_diff}
     model.eval()
     with torch.no_grad():
@@ -105,16 +105,18 @@ def main():
                 my_labels = my_labels[1:]
                 my_volume = my_volume[1:]
             my_volume = torch.max(my_volume, dim=1)[0]
+            #my_volume = torch.mean(my_volume,dim=1)
             my_labels = my_labels.contiguous()
             my_volume = median_filter_3D(my_volume)
+            # my_volume = my_dilation(my_volume,kernelsize=2)
             # my_volume = norm_tensor(my_volume)
             my_mask = my_volume.contiguous()
             aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
             for key in dice_scores_mask:
                 segmentation = torch.where(my_mask > key, 1.0, 0.0)
                 segmentation = segmentation.type(torch.bool)
-                dice_scores_mask[key].extend([dice_stitch(segmentation, my_labels)])
-                # dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
+                dice_scores_mask[key].extend([float(x) for x in dice(segmentation, my_labels)])
+                dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
 
             dice_scores_mask[f"AUPRC"] = aupr
             df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T

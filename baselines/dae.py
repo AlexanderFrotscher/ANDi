@@ -85,7 +85,7 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.run_name = "DAE"
-    args.epochs = 15
+    args.epochs = 5
     args.batch_size = 16
     args.image_size = 128
     args.channels = 4
@@ -94,12 +94,12 @@ def main():
     )
     args.lr = 0.0001
     args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_train.csv"
-    args.train_continue = False
+    args.train_continue = True
     args.current_model = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/DAE/8_ckpt.pt"
+        "/mnt/qb/work/baumgartner/bkc035/normative-diffusion/baselines/models/DAE/14_ckpt.pt"
     )
     args.current_opt = (
-        "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/DAE/8_optim.pt"
+        "/mnt/qb/work/baumgartner/bkc035/normative-diffusion/baselines/models/DAE/14_optim.pt"
     )
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change

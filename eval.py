@@ -12,11 +12,11 @@ from utils import *
 
 
 def main():
-    torch.manual_seed(73)
+    torch.manual_seed(77)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val_small.csv"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
     args.batch_size = 1
     args.image_size = 128
 
@@ -34,7 +34,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.81, 0.01)]
+    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.15, 0.001)]
     dice_scores_mask = {i: [] for i in threshold_test}
 
     with torch.no_grad():
@@ -61,7 +61,7 @@ def main():
         )
         for i, (image, label) in enumerate(pbar):
             image = (image * 2) - 1
-            num_steps = 300
+            num_steps = 200
             size_splits = 50
             num_volumes = image.shape[0]
             num_slices = image.shape[4]
@@ -71,9 +71,9 @@ def main():
             split = torch.split(image, size_splits)
             zs_list = []
             for my_tensor in split:
-                zs = diffusion.dpm_differences(model, my_tensor, start=100, stop=num_steps, pyramid=True).to('cpu')
-                # zs = diffusion.skip_differences(model, my_tensor, start = 50, stop = num_steps, skip=25, pyramid=True).to('cpu')
-                # zs = diffusion.differences_noise(model, my_tensor, start = 50, stop = num_steps, pyramid=True).to('cpu')
+                zs = diffusion.dpm_differences(model, my_tensor, start=100, stop=num_steps, pyramid=False).to('cpu')
+                # zs = diffusion.skip_differences(model, my_tensor, start = 100, stop = num_steps, skip=25, pyramid=False).to('cpu')
+                # zs = diffusion.differences_noise(model, my_tensor, start = 100, stop = num_steps, pyramid=False).to('cpu')
                 zs_list.append(zs)
 
             zs_list = torch.cat(zs_list, dim=0)
