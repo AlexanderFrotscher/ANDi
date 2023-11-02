@@ -7,6 +7,7 @@ https://github.com/dome272/Diffusion-Models-pytorch
 """
 
 from utils import *
+import baselines.simplex_noise
 
 class Diffusion:
     def __init__(self, noise_steps=1000, img_size=128, device="cuda"):
@@ -25,13 +26,13 @@ class Diffusion:
         beta_end = 0.02
         return torch.linspace(beta_start, beta_end, self.noise_steps)
 
-    def noise_images(self, x, t, coarse=False, pyramid=False):
+    def noise_images(self, x, t, pyramid=False, simplex=False):
         sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None, None]
         sqrt_one_minus_alpha_hat = torch.sqrt(1 - self.alpha_hat[t])[
             :, None, None, None
         ]
-        if coarse == True:
-            noise = coarse_noise(x.shape[0], x.shape[1], x.device)
+        if simplex == True:
+            baselines.simplex_noise.generate_simplex_noise(x,t,in_channels=x.shape[1])
         elif pyramid == True:
             noise = pyramid_noise_like(x.shape[0], x.shape[1], x.device)
         else:
@@ -71,12 +72,12 @@ class Diffusion:
         return w0 * x_0 + wt * x
 
     def sample(
-        self, model, n, labels, channels, cfg_scale=3, coarse=False, pyramid=False
+        self, model, n, labels, channels, cfg_scale=3, pyramid=False, simplex=False
     ):  # cfg scale determines the influence of the conditional model
         model.eval()
         with torch.no_grad():
-            if coarse == True:
-                x = coarse_noise(n, channels, self.device)
+            if simplex == True:
+                x = baselines.simplex_noise.generate_simplex_noise(x,t,in_channels=x.shape[1])
             elif pyramid == True:
                 x = pyramid_noise_like(n, channels, self.device)
             else:
@@ -93,8 +94,8 @@ class Diffusion:
                     )
                 beta = self.beta[t][:, None, None, None]
                 if i > 1:
-                    if coarse == True:
-                        noise = coarse_noise(n, channels, self.device)
+                    if simplex == True:
+                        noise = baselines.simplex_noise.generate_simplex_noise(x,t,in_channels=x.shape[1])
                     elif pyramid == True:
                         noise = pyramid_noise_like(n, channels, self.device)
                     else:
@@ -363,19 +364,22 @@ class Diffusion:
                 )
         return x
 
-    def ano_ddpm(self, model, images, num_steps):
+    def ano_ddpm(self, model, images, num_steps, simplex = False, pyramid=False):
         model.eval()
         num_images = images.shape[0]
         with torch.no_grad():
             t = (torch.ones(num_images) * num_steps).long().to(self.device)
-            x, noise = self.noise_images(images, t)
+            x, noise = self.noise_images(images, t,simplex=simplex,pyramid=pyramid)
             for i in tqdm(reversed(range(1, num_steps)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 predicted_noise = model(x, t)
+                alpha_hat = self.alpha_hat[t][:, None, None, None]
                 beta = self.beta[t][:, None, None, None]
+                alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
                 if i > 1:
                     noise = torch.randn_like(x)
                 else:
                     noise = torch.zeros_like(x)
-                x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
+                var = (beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat))
+                x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(var) * noise
         return x
