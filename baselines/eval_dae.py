@@ -13,7 +13,6 @@ sys.path.append(
 
 from accelerate import Accelerator
 from dae_unet import *
-import lpips
 from sklearn.metrics import average_precision_score
 
 from utils import *
@@ -23,8 +22,10 @@ def main():
     torch.manual_seed(73)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val.csv"
+    #args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
+    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val.csv"
+    args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts.csv"
     args.batch_size = 1
     args.image_size = 128
     args.channels = 4
@@ -36,7 +37,7 @@ def main():
         "/mnt/qb/work/baumgartner/bkc035/normative-diffusion/baselines/models/DAE/2_ckpt.pt"
     )
     model.load_state_dict(ckpt)
-    dataloader = Brats_Volume(args, hist=False)
+    dataloader = MRI_Volume(args, hist=False,shift=True)
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)

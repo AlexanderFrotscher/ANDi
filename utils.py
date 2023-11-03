@@ -146,32 +146,39 @@ class BratsDataset(Dataset):
         return img, mask
 
 
-class BratsDataVolume(Dataset):
+class MRIDataVolume(Dataset):
     def __init__(
         self,
         df: pd.DataFrame,
         dataset_path: str,
         image_size: int,
         hist: bool,
+        shift: bool
     ):
         self.df = df
         self.dataset_path = dataset_path
         self.image_size = image_size
         self.hist = hist
+        self.shft = shift
         self.data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
 
     def __len__(self):
         return self.df.shape[0]
 
     def __getitem__(self, idx):
-        id_ = self.df.loc[idx, "BraTS21ID"]
+        if self.shift == True:
+            id_ = self.df.loc[idx, "ShiftsID"]
+            patient_number = id_.split('_')[-1]
+        else:
+            id_ = self.df.loc[idx, "BraTS21ID"]
+            patient_number = id_
         images = []
         for data_type in self.data_types:
-            img_path = os.path.join(self.dataset_path, id_, id_ + data_type)
+            img_path = os.path.join(self.dataset_path, id_, patient_number + data_type)
             img = np.asarray(nib.load(img_path).dataobj, dtype=float)
             images.append(img)
 
-        mask_path = os.path.join(self.dataset_path, id_, id_ + "_seg.nii.gz")
+        mask_path = os.path.join(self.dataset_path, id_, patient_number + "_seg.nii.gz")
         mask = np.asarray(nib.load(mask_path).dataobj, dtype=float)
         mask[mask >= 1] = 1
         mask = torch.from_numpy(mask)
@@ -270,9 +277,9 @@ def Brats21(args, preload=False, eval=False, hist=False):
     return dataloader
 
 
-def Brats_Volume(args, hist=False):
+def MRI_Volume(args, hist=False, shift=False):
     df = pd.read_csv(args.path_to_csv)
-    dataset = BratsDataVolume(df, args.dataset_path, args.image_size, hist=hist)
+    dataset = MRIDataVolume(df, args.dataset_path, args.image_size, hist=hist, shift=shift)
     dataloader = DataLoader(
         dataset, batch_size=args.batch_size, num_workers=1, shuffle=False
     )
