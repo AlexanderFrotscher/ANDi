@@ -21,6 +21,7 @@ from PIL import Image
 from scipy.ndimage import median_filter
 from scipy.ndimage import grey_dilation
 from scipy.signal import medfilt2d
+from skimage.measure import label, regionprops
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
@@ -159,8 +160,8 @@ class MRIDataVolume(Dataset):
         self.dataset_path = dataset_path
         self.image_size = image_size
         self.hist = hist
-        self.shft = shift
-        self.data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
+        self.shift = shift
+        self.data_types = ["_flair.nii.gz", "_T1_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
 
     def __len__(self):
         return self.df.shape[0]
@@ -180,7 +181,8 @@ class MRIDataVolume(Dataset):
 
         mask_path = os.path.join(self.dataset_path, id_, patient_number + "_seg.nii.gz")
         mask = np.asarray(nib.load(mask_path).dataobj, dtype=float)
-        mask[mask >= 1] = 1
+        mask[mask > 0.5] = 1
+        mask[mask < 1] = 0
         mask = torch.from_numpy(mask)
         if self.hist == True:
             img = np.stack([x for x in images])
@@ -402,6 +404,18 @@ def median_filter_3D(volume, kernelsize=5):
         volume[i] = median_filter(volume[i], size=(kernelsize, kernelsize, kernelsize))
     return torch.Tensor(volume)
 
+
+def connected_components_3d(volume):
+    # shape [b, d, h, w], treat every sample in batch independently
+    volume = volume.cpu().numpy()
+    pbar = tqdm(range(len(volume)), desc="Connected components")
+    for i in pbar:
+        cc_volume = label(volume[i], connectivity=3)
+        props = regionprops(cc_volume)
+        for prop in props:
+            if prop["filled_area"] <= 20:
+                volume[i, cc_volume == prop["label"]] = 0
+    return torch.Tensor(volume)
 
 def my_dilation(volume, kernelsize=3):
     volume = volume.cpu().numpy()

@@ -41,7 +41,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_diff = [x / 1000 for x in range(130, 180)]
+    threshold_diff = [x / 1000 for x in range(50, 200)]
     dice_scores_mask = {i: [] for i in threshold_diff}
     model.eval()
     with torch.no_grad():
@@ -108,7 +108,7 @@ def main():
             my_volume = torch.max(my_volume, dim=1)[0]
             #my_volume = torch.mean(my_volume,dim=1)
             my_labels = my_labels.contiguous()
-            my_volume = median_filter_3D(my_volume)
+            # my_volume = median_filter_2D(my_volume)
             # my_volume = my_dilation(my_volume,kernelsize=2)
             # my_volume = norm_tensor(my_volume)
             my_mask = my_volume.contiguous()

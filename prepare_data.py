@@ -182,7 +182,7 @@ class ShiftsHandler():
             raise RuntimeError("0 files to be registered")
 
         # Initialize registrator
-        template_path = os.path.join('./data', 'BrainAtlas/sri24_spm8/templates/T1_brain.nii')
+        template_path = os.path.join('/mnt/qb/work/baumgartner/bkc035', 'BrainAtlas/sri24_spm8/templates/T1_brain.nii')
         registrator = MRIRegistrator(template_path)
 
         # Register files

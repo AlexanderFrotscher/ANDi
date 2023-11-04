@@ -39,12 +39,11 @@ def main():
     for i, (image, label) in enumerate(pbar):
         image = image.to(device)
         label = label.to(device)
-        # flair_t2_volume = (image[:,0] + image[:,3])*0.5
-        flair_volume = image[:, 0].contiguous()
-        aupr = average_precision_score(label.view(-1), flair_volume.view(-1))
+        my_volume = image[:, 0].contiguous()
+        aupr = average_precision_score(label.view(-1), my_volume.view(-1))
         my_auprs["aupr no post"].extend([aupr])
         for key in dice_scores_mask:
-            my_mask = torch.where(flair_volume > key, 1.0, 0.0)
+            my_mask = torch.where(my_volume > key, 1.0, 0.0)
             my_mask = my_mask.type(torch.bool).to(device)
             dice_scores_mask[key].extend([float(x) for x in dice(my_mask, label)])
             dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
@@ -55,13 +54,13 @@ def main():
     for i, (image, label) in enumerate(pbar):
         image = image.to(device)
         label = label.to(device)
-        # flair_t2_volume = (image[:,0] + image[:,3])*0.5
-        flair_volume = image[:, 0].contiguous()
-        my_mask = median_filter_3D(flair_volume)
-        my_mask = my_mask.contiguous()
+        my_volume = image[:, 0]
+        #my_mask = median_filter_3D(my_volume,kernelsize=3)
+        my_mask = my_volume.contiguous()
         aupr = average_precision_score(label.view(-1), my_mask.view(-1))
         my_auprs["aupr post"].extend([aupr])
         my_mask = torch.where(my_mask > my_thresh, 1.0, 0.0)
+        my_mask = connected_components_3d(my_mask)
         my_mask = my_mask.type(torch.bool).to(device)
         my_score.extend([float(x) for x in dice(my_mask, label)])
         my_score = np.mean(np.asarray(my_score))
