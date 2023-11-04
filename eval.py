@@ -15,8 +15,10 @@ def main():
     torch.manual_seed(77)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
+    #args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
+    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
+    args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts.csv"
     args.batch_size = 1
     args.image_size = 128
 
@@ -30,11 +32,11 @@ def main():
 
     model.load_state_dict(ckpt)
     diffusion = Diffusion(noise_steps=1000, img_size=128, device=device)
-    dataloader = Brats_Volume(args, hist=False)
+    dataloader = MRI_Volume(args, hist=False, shift=True)
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.15, 0.001)]
+    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.3, 0.001)]
     dice_scores_mask = {i: [] for i in threshold_test}
 
     with torch.no_grad():
@@ -97,8 +99,8 @@ def main():
                 my_labels = my_labels[1:]
                 my_volume = my_volume[1:]
             my_mask = torch.max(my_volume, dim=1)[0]
-            my_mask = median_filter_3D(my_mask)
-            my_mask = my_dilation(my_mask,kernelsize=3)
+            #my_mask = median_filter_3D(my_mask)
+            #my_mask = my_dilation(my_mask,kernelsize=3)
             my_labels = my_labels.contiguous()
             my_mask = norm_tensor(my_mask)
             my_mask = my_mask.contiguous()
