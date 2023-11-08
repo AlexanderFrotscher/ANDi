@@ -20,6 +20,7 @@ from matplotlib import pyplot as plt
 from PIL import Image
 from scipy.ndimage import median_filter
 from scipy.ndimage import grey_dilation
+from scipy.ndimage import binary_dilation
 from scipy.signal import medfilt2d
 from skimage.measure import label, regionprops
 from torch.nn import functional as F
@@ -161,7 +162,7 @@ class MRIDataVolume(Dataset):
         self.image_size = image_size
         self.hist = hist
         self.shift = shift
-        self.data_types = ["_flair.nii.gz", "_T1_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
+        self.data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
 
     def __len__(self):
         return self.df.shape[0]
@@ -422,6 +423,13 @@ def my_dilation(volume, kernelsize=3):
     pbar = tqdm(range(len(volume)), desc="Grey Dilation")
     for i in pbar:
         volume[i] = grey_dilation(volume[i], size=(kernelsize, kernelsize, kernelsize))
+    return torch.Tensor(volume)
+
+def bin_dilation(volume, structure):
+    volume = volume.cpu().numpy()
+    pbar = tqdm(range(len(volume)), desc="Binray Dilation")
+    for i in pbar:
+        volume[i] = binary_dilation(volume[i], structure=structure)
     return torch.Tensor(volume)
 
 def norm_tensor(tensor):

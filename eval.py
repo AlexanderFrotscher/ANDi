@@ -5,7 +5,8 @@ import argparse
 
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from sklearn.metrics import average_precision_score
-
+from skimage.filters import threshold_otsu
+from scipy.ndimage import generate_binary_structure
 from diffusion import *
 from modules import *
 from utils import *
@@ -16,9 +17,9 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     #args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
+    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val.csv"
     args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts.csv"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_in.csv"
     args.batch_size = 1
     args.image_size = 128
 
@@ -36,7 +37,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.3, 0.001)]
+    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.2, 0.01)]
     dice_scores_mask = {i: [] for i in threshold_test}
 
     with torch.no_grad():
@@ -99,8 +100,7 @@ def main():
                 my_labels = my_labels[1:]
                 my_volume = my_volume[1:]
             my_mask = torch.max(my_volume, dim=1)[0]
-            #my_mask = median_filter_3D(my_mask)
-            #my_mask = my_dilation(my_mask,kernelsize=3)
+            my_mask = median_filter_3D(my_mask, kernelsize=3)
             my_labels = my_labels.contiguous()
             my_mask = norm_tensor(my_mask)
             my_mask = my_mask.contiguous()
@@ -111,8 +111,19 @@ def main():
                 dice_scores_mask[key].extend([float(x) for x in dice(segmentation, my_labels)])
                 dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
 
+            big_segmentation = torch.zeros_like(my_mask)
+            struc = generate_binary_structure(3,1)
+            for j, volume in enumerate(my_mask):
+                thr = threshold_otsu(volume.numpy())
+                segmentation = torch.where(volume > thr, 1.0, 0.0)
+                big_segmentation[j] = segmentation
+            big_segmentation = bin_dilation(big_segmentation, struc)
+            dice_scores_mask['yen'] = []
+            dice_scores_mask['yen'].extend([float(x) for x in dice(big_segmentation, my_labels)])
+            dice_scores_mask['yen'] = np.mean(np.asarray(dice_scores_mask['yen']))
+
             dice_scores_mask[f"AUPRC"] = aupr
-            df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
+            df_mask = pd.DataFrame(dice_scores_mask,index=[0]).T
             df_mask.to_csv("/mnt/qb/work/baumgartner/bkc035/mask_3D.csv")
 
 

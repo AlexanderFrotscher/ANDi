@@ -176,7 +176,7 @@ class MRIRegistrator:
         t_start = time()
         transformations = {}
         for i, path in enumerate(moving_list):
-            save_path = path.split('_')[0:-1]
+            save_path = path.split('_')[0:-2]
             save_path = '_'.join(save_path)
             save_path = save_path + '_t1.nii'
             if path.endswith('.gz'):
