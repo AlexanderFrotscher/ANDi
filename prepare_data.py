@@ -1,133 +1,23 @@
+__author__ = "Alexander Frotscher"
+__email__ = "alexander.frotscher@student.uni-tuebingen.de"
+
+
+"""
+This code is inspired by @FeliMe download_data.py
+https://github.com/FeliMe/brain_sas_baseline
+"""
+
 import argparse
-from glob import glob
 import os
 import shutil
-import zipfile
+from glob import glob
 
 import nibabel as nib
 import numpy as np
+import SimpleITK as sitk
 from tqdm import tqdm
 
 from registrator import MRIRegistrator
-
-
-class WMHHandler():
-    def __init__(self, args):
-        """ Download data from https://wmh.isi.uu.nl/data/
-        Your args.dataset_path should contain the following elements now:
-        Amsterdam_GE3T.zip
-        Singapore.zip
-        Utrecht.zip
-        """
-        if args.dataset_path is None:
-            args.dataset_path = os.path.join('./data', 'WMH')
-
-        if args.skull_strip:
-            self.skull_stripWMH(args)
-        elif args.register:
-            self.register_WMH(args)
-        else:
-            self.prepare_WMH(args)
-
-    @staticmethod
-    def prepare_WMH(args):
-        """Puts all the files in the correct folder and renames them correctly"""
-
-        # Unzip files
-        zip_files = ['Amsterdam_GE3T.zip', 'Singapore.zip', 'Utrecht.zip']
-        zip_files = [os.path.join(args.dataset_path, z) for z in zip_files]
-
-        for zip_file in zip_files:
-            # If file is missing, throw an error
-            if not os.path.exists(zip_file):
-                raise RuntimeError(f"No file found at {zip_file}")
-
-            # Extract zip
-            print(f"Extracting {zip_file}")
-            with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-                zip_ref.extractall(args.dataset_path)
-
-        # Rename anomaly segmentation files
-        seg_files = glob(f"{args.dataset_path}/*/*/wmh.nii.gz")
-        for seg_file in seg_files:
-            target = seg_file[:seg_file.rfind("wmh.nii.gz")] + 'orig/anomaly_segmentation_unregistered.nii.gz'
-            shutil.copy(seg_file, target)
-
-    @staticmethod
-    def skull_stripWMH(args):
-        # Get list of all files
-        files = glob(f"{args.dataset_path}/*/*/orig/T1.nii.gz")
-        print(f"Found {len(files)} files.")
-
-        # Run ROBEX
-        #strip_skull_ROBEX(files)
-
-        files_stripped = glob(f"{args.dataset_path}/*/*/orig/T1_stripped.nii.gz")
-        print(f"Found {len(files_stripped)} stripped files.")
-        for fi in files_stripped:
-            # Strip FLAIR based on T1
-            folder = '/'.join(fi.split('/')[:-1])
-            f_flair = os.path.join(folder, "FLAIR.nii.gz")
-            f_flair_stripped = os.path.join(folder, "FLAIR_stripped.nii.gz")
-
-            # Load files
-            data = nib.load(f_flair, keep_file_open=False)
-            flair = data.get_fdata(caching='unchanged', dtype=np.float32).astype(np.short)
-            t1 = nib.load(fi, keep_file_open=False).get_fdata(
-                          caching='unchanged', dtype=np.float32).astype(np.short)
-
-            # Strip FLAIR
-            flair_stripped = flair * np.where(t1 > 0, 1, 0)
-
-            # Save stripped FLAIR image
-            nib.save(nib.Nifti1Image(flair_stripped.astype(np.short), data.affine), f_flair_stripped)
-
-
-    @staticmethod
-    def register_WMH(args):
-        print("Registering WMH")
-
-        # Get all files
-        files = glob(f"{args.dataset_path}/*/*/orig/T1_stripped.nii.gz")
-        print(f"Found {len(files)} files.")
-
-        if len(files) == 0:
-            raise RuntimeError("0 files to be registered")
-
-        # Initialize registrator
-        # template_path = os.path.join(DATAROOT, 'BrainAtlases/mni_icbm152_nlin_sym_09a/t1_stripped.nii')
-        template_path = os.path.join('./data', 'BrainAtlases/sri24_spm8/templates/T1_brain.nii')
-        # registrator = SitkRegistrator(template_path)
-        registrator = MRIRegistrator(template_path)
-
-        # Register files
-        transformations = registrator.register_batch(files)
-
-        for path, t in tqdm(transformations.items()):
-            base = path [:path.rfind("T1")]
-            folder = '/'.join(path.split('/')[:-1])
-            # Transform FLAIR image
-            path = base + "FLAIR_stripped.nii.gz"
-            save_path = base + "FLAIR_stripped_registered.nii.gz"
-            registrator.transform(
-                img=path,
-                save_path=save_path,
-                transformation=t,
-                affine=registrator.template_affine,
-                dtype="short"
-            )
-            # Transform segmentation
-            path = os.path.join(
-                folder, "anomaly_segmentation_unregistered.nii.gz")
-            save_path = os.path.join(
-                folder, "anomaly_segmentation.nii.gz")
-            registrator.transform(
-                img=path,
-                save_path=save_path,
-                transformation=t,
-                affine=registrator.template_affine,
-                dtype="short"
-            )
 
 
 class ShiftsHandler():
@@ -135,6 +25,8 @@ class ShiftsHandler():
         
         if args.register:
             self.register_Shifts(args)
+        elif args.hist:
+            self.histogram_matching(args)
         else:
             self.prepare_Shifts(args)
 
@@ -233,11 +125,52 @@ class ShiftsHandler():
                 dtype='short'
             )
 
+    @staticmethod
+    def histogram_matching(args):
+        """Matches the histograms to a source volume for all modalities"""
+        id_ = 'BraTS2021_00000'
+        root_path = '/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data'
+        data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz","_t2.nii.gz"]
+        brats_images = []
+        for data_type in data_types:
+            img_path = os.path.join(root_path,id_, id_ + data_type)
+            img = sitk.GetImageFromArray(np.asarray(nib.load(img_path).dataobj,dtype=float))
+            brats_images.append(img)
+
+        patients = glob(f'{args.dataset_path}/*')
+        for patient in patients:  # filter out unsupervised of msseg
+            files = glob(f'{patient}/*')
+            # Iterate over all modalities
+            for file in files:
+                if file.find('_flair.nii.gz') > -1:
+                    volume = nib.load(file)
+                    img = sitk.GetImageFromArray(np.asarray(volume.dataobj,dtype=float))
+                    transformed = sitk.GetArrayFromImage(sitk.HistogramMatching(img, brats_images[0]))
+                    save_nii(file,transformed,volume.affine,dtype='float32')
+                elif file.find('_t1.nii.gz') > -1:
+                    volume = nib.load(file)
+                    img = sitk.GetImageFromArray(np.asarray(volume.dataobj,dtype=float))
+                    transformed = sitk.GetArrayFromImage(sitk.HistogramMatching(img, brats_images[1]))
+                    save_nii(file,transformed,volume.affine,dtype='float32')
+                elif file.find('_t1ce.nii.gz') > -1:
+                    volume = nib.load(file)
+                    img = sitk.GetImageFromArray(np.asarray(volume.dataobj,dtype=float))
+                    transformed = sitk.GetArrayFromImage(sitk.HistogramMatching(img, brats_images[2]))
+                    save_nii(file,transformed,volume.affine,dtype='float32')
+                elif file.find('_t2.nii.gz') > -1:
+                    volume = nib.load(file)
+                    img = sitk.GetImageFromArray(np.asarray(volume.dataobj,dtype=float))
+                    transformed = sitk.GetArrayFromImage(sitk.HistogramMatching(img, brats_images[3]))
+                    save_nii(file,transformed,volume.affine,dtype='float32')
+                else:
+                    pass
+                        
+
+def save_nii(path, img, affine, dtype):
+        nib.save(nib.Nifti1Image(img.astype(dtype), affine), path)
 
 def select_data(args):
-    if args.dataset == 'WMH':
-        WMHHandler(args)
-    elif args.dataset == 'Shifts':
+    if args.dataset == 'Shifts':
         ShiftsHandler(args)
     else:
         raise NotImplementedError
@@ -248,8 +181,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.dataset = 'Shifts'
     args.dataset_path = '/mnt/qb/work/baumgartner/bkc035/shifts_data/patients'
-    #args.dataset_path = None
-    args.register = True
+    #args.dataset_path = './data/Shifts_MS/patients'
+    args.register = False
+    args.hist = True
     # Add this to handle ~ in path variables
     if args.dataset_path:
         args.dataset_path = os.path.expanduser(args.dataset_path)
