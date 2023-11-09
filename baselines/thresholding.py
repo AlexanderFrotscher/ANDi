@@ -11,7 +11,7 @@ sys.path.append(
 )
 
 from sklearn.metrics import average_precision_score
-from skimage.filters import threshold_yen
+from skimage.filters import threshold_otsu
 from scipy.ndimage import generate_binary_structure
 
 from utils import *
@@ -34,7 +34,7 @@ def main():
 
     dataloader = MRI_Volume(args, hist=True, shift=True)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.8, 0.99, 0.01)]
+    threshold_test = [round(x, 3) for x in np.arange(0.85, 1, 0.001)]
     dice_scores_mask = {i: [] for i in threshold_test}
     dice_scores_mask_median = {i: [] for i in threshold_test}
     my_auprs = {i: [] for i in ["aupr no median", "aupr"]}
@@ -42,55 +42,47 @@ def main():
     for i, (image, label) in enumerate(pbar):
         image = image.to(device)
         label = label.to(device)
-        my_volume = image[:, 0].contiguous()
+        my_volume = image[:, 0]
+        median_volume = median_filter_3D(my_volume,kernelsize=3)
+        my_volume = my_volume.contiguous()
+        median_volume = median_volume.contiguous()
         aupr = average_precision_score(label.view(-1), my_volume.view(-1))
         my_auprs["aupr no median"].extend([aupr])
+        aupr = average_precision_score(label.view(-1), median_volume.view(-1))
+        my_auprs["aupr"].extend([aupr])
         for key in dice_scores_mask:
             my_mask = torch.where(my_volume > key, 1.0, 0.0)
             my_mask = my_mask.type(torch.bool).to(device)
+            my_mask2 = torch.where(median_volume > key, 1.0, 0.0)
+            my_mask2 = my_mask2.type(torch.bool).to(device)
             dice_scores_mask[key].extend([float(x) for x in dice(my_mask, label)])
             dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
-        
-        
-        # calculate threshold without greedy search
-        big_segmentation = torch.zeros_like(my_volume)
-        struc = generate_binary_structure(3,1)
-        for j, volume in enumerate(my_volume):
-            thr = threshold_yen(volume.numpy())
-            segmentation = torch.where(volume > thr, 1.0, 0.0)
-            big_segmentation[j] = segmentation
-        big_segmentation = bin_dilation(big_segmentation, struc)
-        dice_scores_mask['yen'] = []
-        dice_scores_mask['yen'].extend([float(x) for x in dice(big_segmentation, label)])
-        dice_scores_mask['yen'] = np.mean(np.asarray(dice_scores_mask['yen']))
-
-    # use median filtering
-    for i, (image, label) in enumerate(pbar):
-        image = image.to(device)
-        label = label.to(device)
-        my_volume = image[:, 0]
-        my_mask = median_filter_3D(my_volume,kernelsize=3)
-        my_mask = my_volume.contiguous()
-        aupr = average_precision_score(label.view(-1), my_mask.view(-1))
-        my_auprs["aupr"].extend([aupr])
-        for key in dice_scores_mask_median:
-            my_mask = torch.where(my_mask > key, 1.0, 0.0)
-            my_mask = my_mask.type(torch.bool).to(device)
-            dice_scores_mask_median[key].extend([float(x) for x in dice(my_mask, label)])
+            dice_scores_mask_median[key].extend([float(x) for x in dice(my_mask2, label)])
             dice_scores_mask_median[key] = np.mean(np.asarray(dice_scores_mask_median[key]))
-
-
+        
+        
         # calculate threshold without greedy search
         big_segmentation = torch.zeros_like(my_volume)
         struc = generate_binary_structure(3,1)
         for j, volume in enumerate(my_volume):
-            thr = threshold_yen(volume.numpy())
+            thr = threshold_otsu(volume.numpy())
             segmentation = torch.where(volume > thr, 1.0, 0.0)
             big_segmentation[j] = segmentation
         big_segmentation = bin_dilation(big_segmentation, struc)
         dice_scores_mask['yen'] = []
         dice_scores_mask['yen'].extend([float(x) for x in dice(big_segmentation, label)])
         dice_scores_mask['yen'] = np.mean(np.asarray(dice_scores_mask['yen']))
+
+
+        for j, volume in enumerate(median_volume):
+            thr = threshold_otsu(volume.numpy())
+            segmentation = torch.where(volume > thr, 1.0, 0.0)
+            big_segmentation[j] = segmentation
+        big_segmentation = bin_dilation(big_segmentation, struc)
+        dice_scores_mask_median['yen'] = []
+        dice_scores_mask_median['yen'].extend([float(x) for x in dice(big_segmentation, label)])
+        dice_scores_mask_median['yen'] = np.mean(np.asarray(dice_scores_mask_median['yen']))
+
 
    
     dice_scores_mask['AUPRC'] = np.asarray(my_auprs["aupr no median"])
