@@ -172,7 +172,7 @@ class MRIDataVolume(Dataset):
             id_ = self.df.loc[idx, "ShiftsID"]
             patient_number = id_.split('_')[-1]
         else:
-            id_ = self.df.loc[idx, "Brats20ID"]
+            id_ = self.df.loc[idx, "BraTS21ID"]
             patient_number = id_
         images = []
         for data_type in self.data_types:
