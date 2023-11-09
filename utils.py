@@ -172,7 +172,7 @@ class MRIDataVolume(Dataset):
             id_ = self.df.loc[idx, "ShiftsID"]
             patient_number = id_.split('_')[-1]
         else:
-            id_ = self.df.loc[idx, "BraTS21ID"]
+            id_ = self.df.loc[idx, "Brats20ID"]
             patient_number = id_
         images = []
         for data_type in self.data_types:
@@ -185,6 +185,8 @@ class MRIDataVolume(Dataset):
         mask[mask > 0.5] = 1
         mask[mask < 1] = 0
         mask = torch.from_numpy(mask)
+        mask = F.interpolate(mask[None,None],[128,128,155],mode='nearest-exact')
+        mask = mask[0,0].type(torch.bool)
         if self.hist == True:
             img = np.stack([x for x in images])
             img = hist_norm(img)
@@ -192,20 +194,14 @@ class MRIDataVolume(Dataset):
             img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
             img = normalize_volume(img.float())
 
-        start_range = 0
-        end_range = 155
         volume = torch.zeros(
-            img.shape[0], self.image_size, self.image_size, end_range - start_range
+            img.shape[0], self.image_size, self.image_size,mask.shape[2]
         )
-        my_mask = torch.zeros(self.image_size, self.image_size, end_range - start_range)
         my_transform = transforms.Resize(self.image_size, antialias=True)
-        for i in range(start_range, end_range):
-            volume[:, :, :, i - start_range] = my_transform(img[None, :, :, :, i])
-            my_mask[:, :, i - start_range] = my_transform(mask[None, None, :, :, i])
-        my_mask[my_mask > 0.5] = 1
-        my_mask[my_mask != 1] = 0
-        my_mask = my_mask.type(torch.bool)
-        return volume, my_mask
+        for i in range(mask.shape[2]):
+            volume[:, :, :, i] = my_transform(img[None, :, :, :, i])
+            
+        return volume, mask
 
 
 class preload_dataset(Dataset):
