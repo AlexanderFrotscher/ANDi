@@ -14,6 +14,8 @@ sys.path.append(
 from accelerate import Accelerator
 from dae_unet import *
 from sklearn.metrics import average_precision_score
+from skimage.filters import threshold_yen
+from scipy.ndimage import generate_binary_structure
 
 from utils import *
 
@@ -25,7 +27,7 @@ def main():
     #args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
     #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val.csv"
     args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts.csv"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_out.csv"
     args.batch_size = 1
     args.image_size = 128
     args.channels = 4
@@ -43,6 +45,8 @@ def main():
     pbar = tqdm(dataloader)
     threshold_diff = [x / 1000 for x in range(50, 200)]
     dice_scores_mask = {i: [] for i in threshold_diff}
+    dice_scores_mask_median = {i: [] for i in threshold_diff}
+    my_auprs = {i: [] for i in ["aupr no median", "aupr"]}
     model.eval()
     with torch.no_grad():
         my_volume = torch.zeros(
@@ -105,23 +109,58 @@ def main():
             if not torch.count_nonzero(my_labels[0]):
                 my_labels = my_labels[1:]
                 my_volume = my_volume[1:]
-            my_volume = torch.max(my_volume, dim=1)[0]
-            #my_volume = torch.mean(my_volume,dim=1)
+            my_mask = torch.max(my_volume, dim=1)[0]
+            mask_median = torch.clone(my_mask)
+            mask_median = median_filter_3D(mask_median, kernelsize=5)
             my_labels = my_labels.contiguous()
-            # my_volume = median_filter_2D(my_volume)
-            # my_volume = my_dilation(my_volume,kernelsize=2)
-            # my_volume = norm_tensor(my_volume)
-            my_mask = my_volume.contiguous()
+            my_mask = norm_tensor(my_mask)
+            mask_median = norm_tensor(mask_median)
+
+            my_mask = my_mask.contiguous()
+            mask_median = mask_median.contiguous()
             aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
+            my_auprs["aupr no median"].extend([aupr])
+            aupr = average_precision_score(label.view(-1), mask_median.view(-1))
+            my_auprs["aupr"].extend([aupr])
             for key in dice_scores_mask:
                 segmentation = torch.where(my_mask > key, 1.0, 0.0)
                 segmentation = segmentation.type(torch.bool)
+                my_mask2 = torch.where(mask_median > key, 1.0, 0.0)
+                my_mask2 = my_mask2.type(torch.bool).to(device)
                 dice_scores_mask[key].extend([float(x) for x in dice(segmentation, my_labels)])
                 dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
+                dice_scores_mask_median[key].extend([float(x) for x in dice(my_mask2, label)])
+                dice_scores_mask_median[key] = np.mean(np.asarray(dice_scores_mask_median[key]))
 
-            dice_scores_mask[f"AUPRC"] = aupr
-            df_mask = pd.DataFrame(dice_scores_mask, index=[0]).T
+            big_segmentation = torch.zeros_like(my_mask)
+            struc = generate_binary_structure(3,1)
+
+
+            for j, volume in enumerate(my_mask):
+                thr = threshold_yen(volume.numpy())
+                segmentation = torch.where(volume > thr, 1.0, 0.0)
+                big_segmentation[j] = segmentation
+            big_segmentation = bin_dilation(big_segmentation, struc)
+            dice_scores_mask['yen'] = []
+            dice_scores_mask['yen'].extend([float(x) for x in dice(big_segmentation, my_labels)])
+            dice_scores_mask['yen'] = np.mean(np.asarray(dice_scores_mask['yen']))
+
+
+            for j, volume in enumerate(mask_median):
+                thr = threshold_yen(volume.numpy())
+                segmentation = torch.where(volume > thr, 1.0, 0.0)
+                big_segmentation[j] = segmentation
+            big_segmentation = bin_dilation(big_segmentation, struc)
+            dice_scores_mask_median['yen'] = []
+            dice_scores_mask_median['yen'].extend([float(x) for x in dice(big_segmentation, my_labels)])
+            dice_scores_mask_median['yen'] = np.mean(np.asarray(dice_scores_mask_median['yen']))
+
+            dice_scores_mask['AUPRC'] = np.asarray(my_auprs["aupr no median"])
+            dice_scores_mask_median['AUPRC'] = np.asarray(my_auprs["aupr"])
+            df_mask = pd.DataFrame(dice_scores_mask,index=[0]).T
+            df_mask2 = pd.DataFrame(dice_scores_mask_median, index=[0]).T
             df_mask.to_csv("/mnt/qb/work/baumgartner/bkc035/dae_result.csv")
+            df_mask2.to_csv("/mnt/qb/work/baumgartner/bkc035/dae_median.csv")
 
 
 if __name__ == "__main__":
