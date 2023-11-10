@@ -77,7 +77,7 @@ def main():
         all_masks = []
         for i, (image, label) in enumerate(pbar):
             image = (image * 2) - 1
-            num_steps = 300
+            num_steps = 200
             num_inpainting = 50
             masking_threshold = 0.124
             resample_steps = 5
@@ -156,7 +156,7 @@ def main():
             mask_median = mask_median.contiguous()
             aupr = average_precision_score(my_labels.view(-1), my_mask.view(-1))
             my_auprs["aupr no median"].extend([aupr])
-            aupr = average_precision_score(label.view(-1), mask_median.view(-1))
+            aupr = average_precision_score(my_labels.view(-1), mask_median.view(-1))
             my_auprs["aupr"].extend([aupr])
             for key in dice_scores_mask:
                 segmentation = torch.where(my_mask > key, 1.0, 0.0)
