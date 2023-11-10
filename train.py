@@ -125,17 +125,17 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "Brats128_l1"
+    args.run_name = "Brats128_3mods"
     args.epochs = 233
     args.batch_size = 128
     args.image_size = 128
-    args.channels = 4
+    args.channels = 3
     args.dataset_path = (
-        "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/BraTS2021_Training_Data"
+        "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
     )
     args.start_lr = 2e-5
     args.target_lr = 7e-5
-    args.path_to_csv = "/mnt/lustre/baumgartner/bkc035/data/BraTS2021/scans_train.csv"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_train.csv"
     args.train_continue = False
     args.current_model = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_ckpt.pt"
     args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_ema_ckpt.pt"

@@ -237,7 +237,7 @@ def Brats21(args, preload=False, eval=False, hist=False):
         root_path = args.dataset_path
         ids = df.loc[:, "BraTS21ID"]
         my_slices = []
-        data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
+        data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t2.nii.gz"]
         for id in ids:
             images = []
             mask_path = os.path.join(root_path, id, id + "_seg.nii.gz")
