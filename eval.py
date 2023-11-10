@@ -5,7 +5,7 @@ import argparse
 
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from sklearn.metrics import average_precision_score
-from skimage.filters import threshold_otsu
+from skimage.filters import threshold_yen
 from scipy.ndimage import generate_binary_structure
 from diffusion import *
 from modules import *
@@ -19,6 +19,7 @@ def main():
     #args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
     #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val.csv"
     args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
+    #args.dataset_path = "/mnt/qb/baumgartner/rawdata/shifts_registered/patients"
     args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_in.csv"
     args.batch_size = 1
     args.image_size = 128
@@ -81,6 +82,7 @@ def main():
 
             zs_list = torch.cat(zs_list, dim=0)
             my_mean = gmean(zs_list,dim=1)
+            #my_mean = torch.mean(zs_list,dim=1)
 
             my_mean = my_mean.view(
                 num_volumes,
@@ -114,7 +116,7 @@ def main():
             big_segmentation = torch.zeros_like(my_mask)
             struc = generate_binary_structure(3,1)
             for j, volume in enumerate(my_mask):
-                thr = threshold_otsu(volume.numpy())
+                thr = threshold_yen(volume.numpy())
                 segmentation = torch.where(volume > thr, 1.0, 0.0)
                 big_segmentation[j] = segmentation
             big_segmentation = bin_dilation(big_segmentation, struc)

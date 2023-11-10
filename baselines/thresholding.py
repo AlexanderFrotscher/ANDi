@@ -23,8 +23,9 @@ def main():
     args = parser.parse_args()
     #args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
     #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val.csv"
-    args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_in.csv"
+    #args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
+    args.dataset_path = "/mnt/qb/baumgartner/rawdata/shifts_registered/patients"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_out.csv"
     args.image_size = 128
     device = "cpu"
 
@@ -43,7 +44,8 @@ def main():
         image = image.to(device)
         label = label.to(device)
         my_volume = image[:, 0]
-        median_volume = median_filter_3D(my_volume,kernelsize=3)
+        median_volume = torch.clone(my_volume)
+        median_volume = median_filter_3D(median_volume,kernelsize=3)
         my_volume = my_volume.contiguous()
         median_volume = median_volume.contiguous()
         aupr = average_precision_score(label.view(-1), my_volume.view(-1))
