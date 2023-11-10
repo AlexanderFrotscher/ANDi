@@ -162,10 +162,10 @@ def main():
                 segmentation = torch.where(my_mask > key, 1.0, 0.0)
                 segmentation = segmentation.type(torch.bool)
                 my_mask2 = torch.where(mask_median > key, 1.0, 0.0)
-                my_mask2 = my_mask2.type(torch.bool).to(device)
+                my_mask2 = my_mask2.type(torch.bool)
                 dice_scores_mask[key].extend([float(x) for x in dice(segmentation, my_labels)])
                 dice_scores_mask[key] = np.mean(np.asarray(dice_scores_mask[key]))
-                dice_scores_mask_median[key].extend([float(x) for x in dice(my_mask2, label)])
+                dice_scores_mask_median[key].extend([float(x) for x in dice(my_mask2, my_labels)])
                 dice_scores_mask_median[key] = np.mean(np.asarray(dice_scores_mask_median[key]))
 
             big_segmentation = torch.zeros_like(my_mask)
