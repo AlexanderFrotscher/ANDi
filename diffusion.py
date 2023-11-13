@@ -32,7 +32,7 @@ class Diffusion:
             :, None, None, None
         ]
         if simplex == True:
-            baselines.simplex_noise.generate_simplex_noise(x,t,in_channels=x.shape[1])
+            noise = baselines.simplex_noise.generate_simplex_noise(x,t,in_channels=x.shape[1])
         elif pyramid == True:
             noise = pyramid_noise_like(x.shape[0], x.shape[1], x.device)
         else:
@@ -65,7 +65,6 @@ class Diffusion:
                 - torch.sqrt((1 - alpha_hat) / (alpha_hat)) * predicted_noise
             )
             pred_x0 = pred_x0.clamp(-1, 1)
-            # pred_x0 = clamp_to_spatial_quantile(pred_x0,0.99)
             x_0 = pred_x0
         w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
         wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
@@ -234,7 +233,7 @@ class Diffusion:
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                 mean = self.ddpm_mean_t(x_t, t, x_0=images)
                 # what was supposed to be predicted and what is predicted
-                z_t = (mean - mu_t)**2
+                z_t = (mean - mu_t) ** 2
                 zs[:, i - start] = z_t
         return zs
 

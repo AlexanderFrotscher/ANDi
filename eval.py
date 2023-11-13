@@ -27,7 +27,7 @@ def main():
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
-    model = UNet_old().to(device=device)
+    model = UNet().to(device=device)
     ckpt = torch.load(
         "/mnt/qb/work/baumgartner/bkc035/normative-diffusion/models/pyramid/232_ema_ckpt.pt"
     )
@@ -103,7 +103,6 @@ def main():
             if not torch.count_nonzero(my_labels[0]):
                 my_labels = my_labels[1:]
                 my_volume = my_volume[1:]
-            #my_volume = my_volume[:,[0,1,3]]
             my_mask = torch.max(my_volume, dim=1)[0]
             mask_median = torch.clone(my_mask)
             mask_median = median_filter_3D(mask_median, kernelsize=5)

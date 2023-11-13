@@ -133,68 +133,7 @@ class DoubleConv(nn.Module):
         else:
             return self.double_conv(x)
 
-class ConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, mid_channels=None, residual=False):
-        super().__init__()
-        self.residual = residual
-        if not mid_channels:
-            mid_channels = out_channels
-        self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.GroupNorm(1, out_channels),
-        )
-
-    def forward(self, x):
-        if self.residual:
-            return F.gelu(x + self.double_conv(x))
-        else:
-            return self.double_conv(x)
-
 class Down(nn.Module):
-    def __init__(self, in_channels, out_channels, emb_dim=256):
-        super().__init__()
-        self.maxpool_conv = nn.Sequential(
-            nn.MaxPool2d(2),
-            ConvBlock(in_channels, in_channels, residual=True),
-            ConvBlock(in_channels, out_channels),
-        )
-
-        self.emb_layer = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(emb_dim, out_channels),
-        )
-
-    def forward(self, x, t):
-        x = self.maxpool_conv(x)
-        emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
-        return x + emb
-    
-
-class Up(nn.Module):
-    def __init__(self, in_channels, out_channels, emb_dim=256):
-        super().__init__()
-
-        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
-        self.conv = nn.Sequential(
-            ConvBlock(in_channels, in_channels, residual=True),
-            ConvBlock(in_channels, out_channels),
-        )
-
-        self.emb_layer = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(emb_dim, out_channels),
-        )
-
-    def forward(self, x, skip_x, t):
-        x = self.up(x)
-        x = torch.cat([skip_x, x], dim=1)
-        x = self.conv(x)
-        emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
-        return x + emb
-
-
-
-class Down_old(nn.Module):
     def __init__(self, in_channels, out_channels, emb_dim=256):
         super().__init__()
         self.maxpool_conv = nn.Sequential(
@@ -214,7 +153,7 @@ class Down_old(nn.Module):
         return x + emb
 
 
-class Up_old(nn.Module):
+class Up(nn.Module):
     def __init__(self, in_channels, out_channels, emb_dim=256):
         super().__init__()
 
@@ -241,8 +180,8 @@ class UNet(nn.Module):
         super().__init__()
         self.device = device
         self.time_dim = time_dim
-        self.inc = ConvBlock(c_in, c_in,residual=True)  # c_in, c_out
-        self.inc2 = ConvBlock(c_in, 32)
+        self.inc = DoubleConv(c_in, 32)  # c_in, c_out
+        self.inc2 = DoubleConv(32, 32, residual=True)
         self.down1 = Down(32, 64)
         self.down2 = Down(64, 128)  # c_in, c_out
         self.sa1 = SelfAttention(128, int(img_size / 4))  # c_in, image_size
@@ -251,8 +190,9 @@ class UNet(nn.Module):
         self.down4 = Down(256, 256)
         self.sa3 = SelfAttention(256, int(img_size / 16))
 
-        self.bot1 = ConvBlock(256, 512)
-        self.bot2 = ConvBlock(512, 256)
+        self.bot1 = DoubleConv(256, 512)
+        #self.bot = DoubleConv(256, 256)
+        self.bot3 = DoubleConv(512, 256)
 
         self.sa4 = SelfAttention(256,int(img_size / 16))
         self.up1 = Up(512, 128)
@@ -261,74 +201,6 @@ class UNet(nn.Module):
         self.sa6 = SelfAttention(64, int(img_size / 4))
         self.up3 = Up(128, 32)
         self.up4 = Up(64,32)
-        self.outc = nn.Conv2d(32, c_out, kernel_size=1)
-
-    def pos_encoding(self, t, channels):
-        inv_freq = 1.0 / (
-            10000
-            ** (torch.arange(0, channels, 2, device=self.device).float() / channels)
-        )
-        pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
-        pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
-        pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
-        return pos_enc
-
-    def unet_forward(self, x, t):
-        x1 = self.inc(x)
-        x1 = self.inc2(x1)
-        x2 = self.down1(x1, t)
-        x3 = self.down2(x2, t)
-        x3 = self.sa1(x3)
-        x4 = self.down3(x3, t)
-        x4 = self.sa2(x4)
-        x5 = self.down4(x4, t)
-        x5 = self.sa3(x5)
-
-        x5 = self.bot1(x5)
-        x5 = self.bot2(x5)
-
-        x = self.sa4(x5)
-        x = self.up1(x, x4, t)
-        x = self.sa5(x)
-        x = self.up2(x, x3, t)
-        x = self.sa6(x)
-        x = self.up3(x, x2, t)
-        x = self.up4(x, x1, t)
-        output = self.outc(x)
-        return output
-
-    def forward(self, x, t):
-        t = t.unsqueeze(-1).type(x.dtype)
-        t = self.pos_encoding(t, self.time_dim)
-        return self.unet_forward(x, t)
-
-
-class UNet_old(nn.Module):
-    def __init__(self, c_in=4, c_out=4, img_size=128, time_dim=256, device="cuda"):
-        super().__init__()
-        self.device = device
-        self.time_dim = time_dim
-        self.inc = DoubleConv(c_in, 32)  # c_in, c_out
-        self.inc2 = DoubleConv(32, 32, residual=True)
-        self.down1 = Down_old(32, 64)
-        self.down2 = Down_old(64, 128)  # c_in, c_out
-        self.sa1 = SelfAttention(128, int(img_size / 4))  # c_in, image_size
-        self.down3 = Down_old(128, 256)
-        self.sa2 = SelfAttention(256, int(img_size / 8))
-        self.down4 = Down_old(256, 256)
-        self.sa3 = SelfAttention(256, int(img_size / 16))
-
-        self.bot1 = DoubleConv(256, 512)
-        #self.bot = DoubleConv(256, 256)
-        self.bot3 = DoubleConv(512, 256)
-
-        self.sa4 = SelfAttention(256,int(img_size / 16))
-        self.up1 = Up_old(512, 128)
-        self.sa5 = SelfAttention(128, int(img_size / 8))
-        self.up2 = Up_old(256, 64)
-        self.sa6 = SelfAttention(64, int(img_size / 4))
-        self.up3 = Up_old(128, 32)
-        self.up4 = Up_old(64,32)
         self.outc = nn.Conv2d(32, c_out, kernel_size=1)
 
     def pos_encoding(self, t, channels):

@@ -41,6 +41,7 @@ def generate_noise(noise_type, x, timestep=None, generator=None):
 def generate_simplex_noise(x, t, random_param=False, octave=6, persistence=0.8, frequency=64,
         in_channels=1
         ):
+    t = t.cpu()[0]
     Simplex_instance = Simplex_CLASS()
     noise = torch.empty(x.shape).to(x.device)
     for i in range(in_channels):
@@ -89,7 +90,7 @@ class Simplex_CLASS:
 
     def newSeed(self, seed=None):
         if not seed:
-            seed = np.random.randint(-10000000000, 10000000000)
+            seed = np.random.randint(-10000000, 10000000)
         self._perm, self._perm_grad_index3 = _init(seed)
 
 

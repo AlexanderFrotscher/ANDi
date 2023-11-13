@@ -237,7 +237,7 @@ def Brats21(args, preload=False, eval=False, hist=False):
         root_path = args.dataset_path
         ids = df.loc[:, "BraTS21ID"]
         my_slices = []
-        data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t2.nii.gz"]
+        data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
         for id in ids:
             images = []
             mask_path = os.path.join(root_path, id, id + "_seg.nii.gz")
@@ -323,23 +323,6 @@ def dice(pred, truth):
     den = (pred.sum(dim=(1, 2, 3)) + truth.sum(dim=(1, 2, 3))).type(torch.float)
     return num / den
 
-def normalized_dice(pred, target):
-    r = 0.01
-    im_sum = pred.sum() + target.sum()
-    if im_sum == 0:
-        return 1.0
-    else:
-        if target.sum() == 0:
-            k = 1.0
-        else:
-            k = (1 - r) * target.sum() / (r * (len(target.view(-1)) - target.sum()))
-        tp = torch.sum(pred[target == 1])
-        fp = torch.sum(pred[target == 0])
-        fn = torch.sum(target[pred == 0])
-        fp_scaled = k * fp
-        dsc_norm = 2. * tp / (fp_scaled + 2. * tp + fn)
-        return dsc_norm
-
 
 def coarse_noise(n, channels, device, noise_size=16, noise_std=0.2, image_size=128):
     noise = torch.normal(
@@ -372,17 +355,6 @@ def pyramid_noise_like(n, channels, device, image_size=128, discount=0.8):
             break  # Lowest resolution is 1x1
     return noise / noise.std()  # Scaled back to roughly unit variance
 
-
-# dynamic normalisation
-def clamp_to_spatial_quantile(x: torch.Tensor, p: float):
-    b, c, *spatial = x.shape
-    quantile = torch.quantile(torch.abs(x).view(b, c, -1), p, dim=-1, keepdim=True)
-    quantile = torch.max(quantile, torch.ones_like(quantile))
-    quantile_broadcasted, _ = torch.broadcast_tensors(quantile.unsqueeze(-1), x)
-    return (
-        torch.min(torch.max(x, -quantile_broadcasted), quantile_broadcasted)
-        / quantile_broadcasted
-    )
 
 
 def median_filter_2D(volume, kernelsize=5):

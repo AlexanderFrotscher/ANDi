@@ -74,7 +74,7 @@ def train(args):
         for i, (images) in enumerate(pbar):
             images = (images * 2) - 1  # normalization
             t = diffusion.sample_timesteps(images.shape[0]).to(device)
-            x_t, noise = diffusion.noise_images(images, t, pyramid=False)
+            x_t, noise = diffusion.noise_images(images, t, simplex=True, pyramid=False)
             # if np.random.random() < 0.1:
             #    labels = None
             # predicted_noise = model(x_t, t, labels)
@@ -126,21 +126,21 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.run_name = "Brats128_3mods"
+    args.run_name = "Brats128_simplex"
     args.epochs = 233
     args.batch_size = 128
     args.image_size = 128
-    args.channels = 3
+    args.channels = 4
     args.dataset_path = (
         "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
     )
     args.start_lr = 2e-5
     args.target_lr = 7e-5
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_train.csv"
+    args.path_to_csv = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data/splits/scans_train.csv"
     args.train_continue = False
-    args.current_model = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_ckpt.pt"
-    args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_ema_ckpt.pt"
-    args.current_opt = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_optim.pt"
+    #args.current_model = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_ckpt.pt"
+    #args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_ema_ckpt.pt"
+    #args.current_opt = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_optim.pt"
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )
