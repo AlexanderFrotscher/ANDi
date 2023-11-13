@@ -11,7 +11,7 @@ sys.path.append(
 )
 
 from sklearn.metrics import average_precision_score
-from skimage.filters import threshold_otsu
+from skimage.filters import threshold_yen
 from scipy.ndimage import generate_binary_structure
 
 from utils import *
@@ -21,11 +21,11 @@ def main():
     torch.manual_seed(73)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    #args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val.csv"
+    args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
     #args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
-    args.dataset_path = "/mnt/qb/baumgartner/rawdata/shifts_registered/patients"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_out.csv"
+    #args.dataset_path = "/mnt/qb/baumgartner/rawdata/shifts_registered/patients"
+    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_out.csv"
     args.image_size = 128
     device = "cpu"
 
@@ -33,7 +33,7 @@ def main():
     len_df = len(len_df)
     args.batch_size = len_df
 
-    dataloader = MRI_Volume(args, hist=True, shift=True)
+    dataloader = MRI_Volume(args, hist=True, shift=False)
     pbar = tqdm(dataloader)
     threshold_test = [round(x, 3) for x in np.arange(0.85, 1, 0.001)]
     dice_scores_mask = {i: [] for i in threshold_test}
@@ -45,7 +45,7 @@ def main():
         label = label.to(device)
         my_volume = image[:, 0]
         median_volume = torch.clone(my_volume)
-        median_volume = median_filter_3D(median_volume,kernelsize=3)
+        median_volume = median_filter_3D(median_volume,kernelsize=5)
         my_volume = my_volume.contiguous()
         median_volume = median_volume.contiguous()
         aupr = average_precision_score(label.view(-1), my_volume.view(-1))
@@ -67,7 +67,7 @@ def main():
         big_segmentation = torch.zeros_like(my_volume)
         struc = generate_binary_structure(3,1)
         for j, volume in enumerate(my_volume):
-            thr = threshold_otsu(volume.numpy())
+            thr = threshold_yen(volume.numpy())
             segmentation = torch.where(volume > thr, 1.0, 0.0)
             big_segmentation[j] = segmentation
         big_segmentation = bin_dilation(big_segmentation, struc)
@@ -77,7 +77,7 @@ def main():
 
 
         for j, volume in enumerate(median_volume):
-            thr = threshold_otsu(volume.numpy())
+            thr = threshold_yen(volume.numpy())
             segmentation = torch.where(volume > thr, 1.0, 0.0)
             big_segmentation[j] = segmentation
         big_segmentation = bin_dilation(big_segmentation, struc)

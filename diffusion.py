@@ -234,7 +234,7 @@ class Diffusion:
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                 mean = self.ddpm_mean_t(x_t, t, x_0=images)
                 # what was supposed to be predicted and what is predicted
-                z_t = (mean - mu_t) ** 2
+                z_t = (mean - mu_t)**2
                 zs[:, i - start] = z_t
         return zs
 

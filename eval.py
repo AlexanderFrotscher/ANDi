@@ -13,32 +13,32 @@ from utils import *
 
 
 def main():
-    torch.manual_seed(77)
+    torch.manual_seed(73)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    #args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val.csv"
-    args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
+    args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
+    #args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
     #args.dataset_path = "/mnt/qb/baumgartner/rawdata/shifts_registered/patients"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_in.csv"
+    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_out.csv"
     args.batch_size = 1
     args.image_size = 128
 
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
-    model = UNet().to(device=device)
+    model = UNet_old().to(device=device)
     ckpt = torch.load(
         "/mnt/qb/work/baumgartner/bkc035/normative-diffusion/models/pyramid/232_ema_ckpt.pt"
     )
 
     model.load_state_dict(ckpt)
     diffusion = Diffusion(noise_steps=1000, img_size=128, device=device)
-    dataloader = MRI_Volume(args, hist=False, shift=True)
+    dataloader = MRI_Volume(args, hist=False, shift=False)
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.2, 0.01)]
+    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.10, 0.001)]
     dice_scores_mask = {i: [] for i in threshold_test}
     dice_scores_mask_median = {i: [] for i in threshold_test}
     my_auprs = {i: [] for i in ["aupr no median", "aupr"]}
@@ -77,7 +77,7 @@ def main():
             split = torch.split(image, size_splits)
             zs_list = []
             for my_tensor in split:
-                zs = diffusion.dpm_differences(model, my_tensor, start=100, stop=num_steps, pyramid=False).to('cpu')
+                zs = diffusion.dpm_differences(model, my_tensor, start=75, stop=num_steps, pyramid=False).to('cpu')
                 # zs = diffusion.skip_differences(model, my_tensor, start = 100, stop = num_steps, skip=25, pyramid=False).to('cpu')
                 # zs = diffusion.differences_noise(model, my_tensor, start = 100, stop = num_steps, pyramid=False).to('cpu')
                 zs_list.append(zs)
@@ -103,9 +103,10 @@ def main():
             if not torch.count_nonzero(my_labels[0]):
                 my_labels = my_labels[1:]
                 my_volume = my_volume[1:]
+            #my_volume = my_volume[:,[0,1,3]]
             my_mask = torch.max(my_volume, dim=1)[0]
             mask_median = torch.clone(my_mask)
-            mask_median = median_filter_3D(mask_median, kernelsize=3)
+            mask_median = median_filter_3D(mask_median, kernelsize=5)
             my_labels = my_labels.contiguous()
             my_mask = norm_tensor(my_mask)
             mask_median = norm_tensor(mask_median)

@@ -9,6 +9,7 @@ https://github.com/dome272/Diffusion-Models-pytorch
 import argparse
 import copy
 import logging
+import os
 
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from torch import optim
@@ -19,7 +20,7 @@ from modules import *
 from utils import *
 
 logging.basicConfig(format="%(message)s", level=logging.INFO)
-
+os.environ["WANDB__SERVICE_WAIT"] = "300"
 
 def train(args):
     make_dicts(args.run_name)

@@ -24,10 +24,10 @@ def main():
     torch.manual_seed(73)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    #args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val.csv"
-    args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_out.csv"
+    args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
+    #args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
+    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_out.csv"
     args.batch_size = 1
     args.image_size = 128
     args.channels = 4
@@ -36,10 +36,10 @@ def main():
     device = accelerator.device
     model = UNet(args.channels, args.channels, depth=4, wf=6, padding=True).to(device)
     ckpt = torch.load(
-        "/mnt/qb/work/baumgartner/bkc035/normative-diffusion/baselines/models/DAE/2_ckpt.pt"
+        "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data/models/DAE/2_ckpt.pt"
     )
     model.load_state_dict(ckpt)
-    dataloader = MRI_Volume(args, hist=False,shift=True)
+    dataloader = MRI_Volume(args, hist=False,shift=False)
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
@@ -109,9 +109,10 @@ def main():
             if not torch.count_nonzero(my_labels[0]):
                 my_labels = my_labels[1:]
                 my_volume = my_volume[1:]
-            my_mask = torch.max(my_volume, dim=1)[0]
+            #my_mask = torch.max(my_volume, dim=1)[0]
+            my_mask = torch.mean(my_volume,dim=1)
             mask_median = torch.clone(my_mask)
-            mask_median = median_filter_3D(mask_median, kernelsize=3)
+            mask_median = median_filter_3D(mask_median, kernelsize=5)
             my_labels = my_labels.contiguous()
             my_mask = norm_tensor(my_mask)
             mask_median = norm_tensor(mask_median)
