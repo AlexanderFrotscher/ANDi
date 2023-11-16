@@ -32,7 +32,8 @@ class Diffusion:
             :, None, None, None
         ]
         if simplex == True:
-            noise = baselines.simplex_noise.generate_simplex_noise(x,t,in_channels=x.shape[1])
+            slice_t = self.sample_timesteps(x.shape[0])
+            noise = baselines.simplex_noise.generate_simplex_noise(x,slice_t,in_channels=x.shape[1])
         elif pyramid == True:
             noise = pyramid_noise_like(x.shape[0], x.shape[1], x.device)
         else:
@@ -78,8 +79,8 @@ class Diffusion:
             if simplex == True:
                 tmp = torch.randn((n, channels, self.img_size, self.img_size)).to(
                     self.device)
-                t = self.sample_timesteps(n)
-                x = baselines.simplex_noise.generate_simplex_noise(tmp,t,in_channels=tmp.shape[1])
+                slice_t = self.sample_timesteps(n)
+                x = baselines.simplex_noise.generate_simplex_noise(tmp,slice_t,in_channels=tmp.shape[1])
             elif pyramid == True:
                 x = pyramid_noise_like(n, channels, self.device)
             else:
@@ -99,7 +100,8 @@ class Diffusion:
                 alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
                 if i > 1:
                     if simplex == True:
-                        noise = baselines.simplex_noise.generate_simplex_noise(x,t,in_channels=x.shape[1])
+                        slice_t = self.sample_timesteps(n)
+                        noise = baselines.simplex_noise.generate_simplex_noise(x,slice_t,in_channels=x.shape[1])
                     elif pyramid == True:
                         noise = pyramid_noise_like(n, channels, self.device)
                     else:
@@ -382,7 +384,13 @@ class Diffusion:
                 beta = self.beta[t][:, None, None, None]
                 alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
                 if i > 1:
-                    noise = torch.randn_like(x)
+                    if simplex == True:
+                        slice_t = self.sample_timesteps(x.shape[0])
+                        noise = baselines.simplex_noise.generate_simplex_noise(x,slice_t,in_channels=x.shape[1])
+                    elif pyramid == True:
+                        noise = pyramid_noise_like(x.shape[0], x.shape[1], self.device)
+                    else:
+                        noise = torch.randn_like(x)
                 else:
                     noise = torch.zeros_like(x)
                 var = (beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat))
