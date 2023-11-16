@@ -93,7 +93,7 @@ def train(args):
             my_ema_model = accelerator.unwrap_model(ema_model)
             # labels = torch.arange(args.num_classes).long().to(device)
             labels = None
-            n = 5
+            n = 1
             accelerator.save(
                 my_model.state_dict(),
                 os.path.join("models", args.run_name, f"{epoch}_ckpt.pt"),
@@ -109,6 +109,7 @@ def train(args):
                 channels=args.channels,
                 cfg_scale=0,
                 pyramid=False,
+                simplex=True
             )
             save_images(
                 ema_sampled_images,

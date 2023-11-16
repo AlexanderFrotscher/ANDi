@@ -76,7 +76,10 @@ class Diffusion:
         model.eval()
         with torch.no_grad():
             if simplex == True:
-                x = baselines.simplex_noise.generate_simplex_noise(x,t,in_channels=x.shape[1])
+                tmp = torch.randn((n, channels, self.img_size, self.img_size)).to(
+                    self.device)
+                t = self.sample_timesteps(n)
+                x = baselines.simplex_noise.generate_simplex_noise(tmp,t,in_channels=tmp.shape[1])
             elif pyramid == True:
                 x = pyramid_noise_like(n, channels, self.device)
             else:
@@ -91,7 +94,9 @@ class Diffusion:
                     predicted_noise = torch.lerp(
                         uncond_predicted_noise, predicted_noise, cfg_scale
                     )
+                alpha_hat = self.alpha_hat[t][:, None, None, None]
                 beta = self.beta[t][:, None, None, None]
+                alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
                 if i > 1:
                     if simplex == True:
                         noise = baselines.simplex_noise.generate_simplex_noise(x,t,in_channels=x.shape[1])
@@ -101,8 +106,9 @@ class Diffusion:
                         noise = torch.randn_like(x)
                 else:
                     noise = torch.zeros_like(x)
-                x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
-                # x = self.ddpm_mu_t_2(x, predicted_noise, t) + torch.sqrt(beta) * noise
+                #x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
+                var = (beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat))
+                x = self.ddpm_mean_t(x,t, predicted_noise) + torch.sqrt(var) * noise
         model.train()
         x = (x.clamp(-1, 1) + 1) / 2
         x = (x * 255).type(torch.uint8)

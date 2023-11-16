@@ -41,7 +41,6 @@ def generate_noise(noise_type, x, timestep=None, generator=None):
 def generate_simplex_noise(x, t, random_param=False, octave=6, persistence=0.8, frequency=64,
         in_channels=1
         ):
-    t = t.cpu()[0]
     Simplex_instance = Simplex_CLASS()
     noise = torch.empty(x.shape).to(x.device)
     for i in range(in_channels):
@@ -63,7 +62,7 @@ def generate_simplex_noise(x, t, random_param=False, octave=6, persistence=0.8, 
                             #         param[2]
                             #         )
                             Simplex_instance.rand_3d_fixed_T_octaves(
-                                    x.shape[-2:], np.array([t]), param[0], param[1],
+                                    x.shape[-2:], t.detach().cpu().numpy(), param[0], param[1],
                                     param[2]
                                     )
                             ).to(x.device), 0
@@ -75,7 +74,7 @@ def generate_simplex_noise(x, t, random_param=False, octave=6, persistence=0.8, 
                         #         persistence, frequency
                         #         )
                         Simplex_instance.rand_3d_fixed_T_octaves(
-                                x.shape[-2:], np.array([t]), octave,
+                                x.shape[-2:], t.detach().cpu().numpy(), octave,
                                 persistence, frequency
                                 )
                         ).to(x.device), 0
@@ -155,7 +154,7 @@ class Simplex_CLASS:
         :return: Fractal noise sample with n lots of 2D images
         """
         assert len(shape) == 2
-        noise = np.zeros((1, *shape))
+        noise = np.zeros((len(T), *shape))
         y, x = [np.arange(0, end) for end in shape]
         amplitude = 1
         for _ in range(octaves):
