@@ -27,64 +27,132 @@ import numpy as np
 import torch
 from matplotlib import animation
 from numba import njit, prange
+from tqdm import tqdm
+
 
 def generate_noise(noise_type, x, timestep=None, generator=None):
     if noise_type == "simplex":
         assert timestep is not None
         noise = generate_simplex_noise(x, timestep).to(x.device)
-    else: # gaussian
+    else:  # gaussian
         noise = torch.randn(
             x.shape, dtype=x.dtype, layout=x.layout, generator=generator
         ).to(x.device)
     return noise
 
-def generate_simplex_noise(x, t, random_param=False, octave=6, persistence=0.8, frequency=64,
-        in_channels=1
-        ):
-    t = t.cpu()[0]
+
+def generate_simplex_noise(
+    x, t, random_param=False, octave=6, persistence=0.8, frequency=64, in_channels=1
+):
     Simplex_instance = Simplex_CLASS()
     noise = torch.empty(x.shape).to(x.device)
     for i in range(in_channels):
         Simplex_instance.newSeed()
         if random_param:
             param = random.choice(
-                    [(2, 0.6, 16), (6, 0.6, 32), (7, 0.7, 32), (10, 0.8, 64), (5, 0.8, 16), (4, 0.6, 16), (1, 0.6, 64),
-                     (7, 0.8, 128), (6, 0.9, 64), (2, 0.85, 128), (2, 0.85, 64), (2, 0.85, 32), (2, 0.85, 16),
-                     (2, 0.85, 8),
-                     (2, 0.85, 4), (2, 0.85, 2), (1, 0.85, 128), (1, 0.85, 64), (1, 0.85, 32), (1, 0.85, 16),
-                     (1, 0.85, 8),
-                     (1, 0.85, 4), (1, 0.85, 2), ]
-                    )
+                [
+                    (2, 0.6, 16),
+                    (6, 0.6, 32),
+                    (7, 0.7, 32),
+                    (10, 0.8, 64),
+                    (5, 0.8, 16),
+                    (4, 0.6, 16),
+                    (1, 0.6, 64),
+                    (7, 0.8, 128),
+                    (6, 0.9, 64),
+                    (2, 0.85, 128),
+                    (2, 0.85, 64),
+                    (2, 0.85, 32),
+                    (2, 0.85, 16),
+                    (2, 0.85, 8),
+                    (2, 0.85, 4),
+                    (2, 0.85, 2),
+                    (1, 0.85, 128),
+                    (1, 0.85, 64),
+                    (1, 0.85, 32),
+                    (1, 0.85, 16),
+                    (1, 0.85, 8),
+                    (1, 0.85, 4),
+                    (1, 0.85, 2),
+                ]
+            )
             # 2D octaves seem to introduce directional artifacts in the top left
             noise[:, i, ...] = torch.unsqueeze(
-                    torch.from_numpy(
-                            # Simplex_instance.rand_2d_octaves(
-                            #         x.shape[-2:], param[0], param[1],
-                            #         param[2]
-                            #         )
-                            Simplex_instance.rand_3d_fixed_T_octaves(
-                                    x.shape[-2:], np.array([t]), param[0], param[1],
-                                    param[2]
-                                    )
-                            ).to(x.device), 0
-                    ).repeat(x.shape[0], 1, 1, 1)
-        noise[:, i, ...] = torch.unsqueeze(
                 torch.from_numpy(
-                        # Simplex_instance.rand_2d_octaves(
-                        #         x.shape[-2:], octave,
-                        #         persistence, frequency
-                        #         )
-                        Simplex_instance.rand_3d_fixed_T_octaves(
-                                x.shape[-2:], np.array([t]), octave,
-                                persistence, frequency
-                                )
-                        ).to(x.device), 0
+                    # Simplex_instance.rand_2d_octaves(
+                    #         x.shape[-2:], param[0], param[1],
+                    #         param[2]
+                    #         )
+                    Simplex_instance.rand_3d_fixed_T_octaves(
+                        x.shape[-2:],
+                        t.detach().cpu().numpy(),
+                        param[0],
+                        param[1],
+                        param[2],
+                    )
+                ).to(x.device),
+                0,
+            ).repeat(x.shape[0], 1, 1, 1)
+        # print(x.shape[-2:], t.detach().cpu().numpy().shape)
+        noise[:, i, ...] = torch.unsqueeze(
+            torch.from_numpy(
+                # Simplex_instance.rand_2d_octaves(
+                #         x.shape[-2:], octave,
+                #         persistence, frequency
+                #         )
+                Simplex_instance.rand_3d_fixed_T_octaves(
+                    x.shape[-2:],
+                    t[:1].detach().cpu().numpy(),
+                    octave,
+                    persistence,
+                    frequency,
                 )
+            ).to(x.device),
+            0,
+        )
     return noise
 
 
-class Simplex_CLASS:
+# def generate_simplex_noise(x, t, random_param=False, octave=6, persistence=0.8, frequency=64,
+#         in_channels=1
+#         ):
 
+#     Simplex_instance = Simplex_CLASS()
+#     noise = torch.empty(x.shape).to(x.device)
+#     for i in range(in_channels):
+#         Simplex_instance.newSeed()
+#         if random_param:
+#             param = random.choice(
+#                     [(2, 0.6, 16), (6, 0.6, 32), (7, 0.7, 32), (10, 0.8, 64), (5, 0.8, 16), (4, 0.6, 16), (1, 0.6, 64),
+#                      (7, 0.8, 128), (6, 0.9, 64), (2, 0.85, 128), (2, 0.85, 64), (2, 0.85, 32), (2, 0.85, 16),
+#                      (2, 0.85, 8),
+#                      (2, 0.85, 4), (2, 0.85, 2), (1, 0.85, 128), (1, 0.85, 64), (1, 0.85, 32), (1, 0.85, 16),
+#                      (1, 0.85, 8),
+#                      (1, 0.85, 4), (1, 0.85, 2), ]
+#                     )
+#             # 2D octaves seem to introduce directional artifacts in the top left
+#             noise[:, i, ...] = torch.unsqueeze(
+#                     torch.from_numpy(
+#                             # Simplex_instance.rand_2d_octaves(
+#                             #         x.shape[-2:], param[0], param[1],
+#                             #         param[2]
+#                             #         )
+#                             Simplex_instance.rand_3d_fixed_T_octaves(
+#                                     x.shape[-2:], t.detach().cpu().numpy(), param[0], param[1],
+#                                     param[2]
+#                                     )
+#                             ).to(x.device), 0
+#                     ).repeat(x.shape[0], 1, 1, 1)
+#         sim_noise = Simplex_instance.rand_3d_fixed_T_octaves(x.shape[-2:], t.detach().cpu().numpy(), octave, persistence, frequency)
+#         sim_noise = torch.unsqueeze(torch.from_numpy(sim_noise).to(x.device), 0)
+#         sim_noise = sim_noise.repeat(x.shape[0], 1, 1, 1)
+#         print(sim_noise.shape)
+#         print(noise.shape)
+#         noise[:, i, :, :] = sim_noise
+#     return noise
+
+
+class Simplex_CLASS:
     def __init__(self):
         self.newSeed()
 
@@ -92,7 +160,6 @@ class Simplex_CLASS:
         if not seed:
             seed = np.random.randint(-10000000, 10000000)
         self._perm, self._perm_grad_index3 = _init(seed)
-
 
     def noise2(self, x, y):
         return _noise2(x, y, self._perm)
@@ -120,7 +187,9 @@ class Simplex_CLASS:
         z, y, x = [np.arange(0, end) for end in shape]
         amplitude = 1
         for _ in range(octaves):
-            noise += amplitude * self.noise3array(x / frequency, y / frequency, z / frequency)
+            noise += amplitude * self.noise3array(
+                x / frequency, y / frequency, z / frequency
+            )
             frequency /= 2
             amplitude *= persistence
         return noise
@@ -144,7 +213,30 @@ class Simplex_CLASS:
             amplitude *= persistence
         return noise
 
-    def rand_3d_fixed_T_octaves(self, shape, T, octaves=1, persistence=0.5, frequency=32):
+    # def rand_3d_fixed_T_octaves(self, shape, T, octaves=1, persistence=0.5, frequency=32):
+    #     """
+    #     Returns a layered fractal noise in 3D
+
+    #     :param shape: Shape of 3D tensor output
+    #     :param octaves: Number of levels of fractal noise
+    #     :param persistence: float between (0-1) -> Rate at which amplitude of each level decreases
+    #     :param frequency: Frequency of initial octave of noise
+    #     :return: Fractal noise sample with n lots of 2D images
+    #     """
+    #     assert len(shape) == 2
+    #     noise = np.zeros((1, *shape))
+    #     y, x = [np.arange(0, end) for end in shape]
+    #     amplitude = 1
+    #     for _ in range(octaves):
+    #         # print(noise.shape, amplitude, x.shape, y.shape, T.shape)
+    #         noise += amplitude * self.noise3array(x / frequency, y / frequency, T / frequency)
+    #         frequency /= 2
+    #         amplitude *= persistence
+    #     return noise
+
+    def rand_3d_fixed_T_octaves(
+        self, shape, T, octaves=1, persistence=0.5, frequency=32
+    ):
         """
         Returns a layered fractal noise in 3D
 
@@ -159,7 +251,9 @@ class Simplex_CLASS:
         y, x = [np.arange(0, end) for end in shape]
         amplitude = 1
         for _ in range(octaves):
-            noise += amplitude * self.noise3array(x / frequency, y / frequency, T / frequency)
+            noise += amplitude * self.noise3array(
+                x / frequency, y / frequency, T / frequency
+            )
             frequency /= 2
             amplitude *= persistence
         return noise
@@ -173,55 +267,374 @@ DEFAULT_SEED = 3
 # Gradients for 2D. They approximate the directions to the
 # vertices of an octagon from the center.
 GRADIENTS2 = np.array(
-        [
-            5, 2, 2, 5,
-            -5, 2, -2, 5,
-            5, -2, 2, -5,
-            -5, -2, -2, -5,
-            ], dtype=np.int64
-        )
+    [
+        5,
+        2,
+        2,
+        5,
+        -5,
+        2,
+        -2,
+        5,
+        5,
+        -2,
+        2,
+        -5,
+        -5,
+        -2,
+        -2,
+        -5,
+    ],
+    dtype=np.int64,
+)
 
 # Gradients for 3D. They approximate the directions to the
 # vertices of a rhombicuboctahedron from the center, skewed so
 # that the triangular and square facets can be inscribed inside
 # circles of the same radius.
 GRADIENTS3 = np.array(
-        [
-            -11, 4, 4, -4, 11, 4, -4, 4, 11,
-            11, 4, 4, 4, 11, 4, 4, 4, 11,
-            -11, -4, 4, -4, -11, 4, -4, -4, 11,
-            11, -4, 4, 4, -11, 4, 4, -4, 11,
-            -11, 4, -4, -4, 11, -4, -4, 4, -11,
-            11, 4, -4, 4, 11, -4, 4, 4, -11,
-            -11, -4, -4, -4, -11, -4, -4, -4, -11,
-            11, -4, -4, 4, -11, -4, 4, -4, -11,
-            ], dtype=np.int64
-        )
+    [
+        -11,
+        4,
+        4,
+        -4,
+        11,
+        4,
+        -4,
+        4,
+        11,
+        11,
+        4,
+        4,
+        4,
+        11,
+        4,
+        4,
+        4,
+        11,
+        -11,
+        -4,
+        4,
+        -4,
+        -11,
+        4,
+        -4,
+        -4,
+        11,
+        11,
+        -4,
+        4,
+        4,
+        -11,
+        4,
+        4,
+        -4,
+        11,
+        -11,
+        4,
+        -4,
+        -4,
+        11,
+        -4,
+        -4,
+        4,
+        -11,
+        11,
+        4,
+        -4,
+        4,
+        11,
+        -4,
+        4,
+        4,
+        -11,
+        -11,
+        -4,
+        -4,
+        -4,
+        -11,
+        -4,
+        -4,
+        -4,
+        -11,
+        11,
+        -4,
+        -4,
+        4,
+        -11,
+        -4,
+        4,
+        -4,
+        -11,
+    ],
+    dtype=np.int64,
+)
 
 # Gradients for 4D. They approximate the directions to the
 # vertices of a disprismatotesseractihexadecachoron from the center,
 # skewed so that the tetrahedral and cubic facets can be inscribed inside
 # spheres of the same radius.
 GRADIENTS4 = np.array(
-        [
-            3, 1, 1, 1, 1, 3, 1, 1, 1, 1, 3, 1, 1, 1, 1, 3,
-            -3, 1, 1, 1, -1, 3, 1, 1, -1, 1, 3, 1, -1, 1, 1, 3,
-            3, -1, 1, 1, 1, -3, 1, 1, 1, -1, 3, 1, 1, -1, 1, 3,
-            -3, -1, 1, 1, -1, -3, 1, 1, -1, -1, 3, 1, -1, -1, 1, 3,
-            3, 1, -1, 1, 1, 3, -1, 1, 1, 1, -3, 1, 1, 1, -1, 3,
-            -3, 1, -1, 1, -1, 3, -1, 1, -1, 1, -3, 1, -1, 1, -1, 3,
-            3, -1, -1, 1, 1, -3, -1, 1, 1, -1, -3, 1, 1, -1, -1, 3,
-            -3, -1, -1, 1, -1, -3, -1, 1, -1, -1, -3, 1, -1, -1, -1, 3,
-            3, 1, 1, -1, 1, 3, 1, -1, 1, 1, 3, -1, 1, 1, 1, -3,
-            -3, 1, 1, -1, -1, 3, 1, -1, -1, 1, 3, -1, -1, 1, 1, -3,
-            3, -1, 1, -1, 1, -3, 1, -1, 1, -1, 3, -1, 1, -1, 1, -3,
-            -3, -1, 1, -1, -1, -3, 1, -1, -1, -1, 3, -1, -1, -1, 1, -3,
-            3, 1, -1, -1, 1, 3, -1, -1, 1, 1, -3, -1, 1, 1, -1, -3,
-            -3, 1, -1, -1, -1, 3, -1, -1, -1, 1, -3, -1, -1, 1, -1, -3,
-            3, -1, -1, -1, 1, -3, -1, -1, 1, -1, -3, -1, 1, -1, -1, -3,
-            -3, -1, -1, -1, -1, -3, -1, -1, -1, -1, -3, -1, -1, -1, -1, -3,
-            ], dtype=np.int64
-        )
+    [
+        3,
+        1,
+        1,
+        1,
+        1,
+        3,
+        1,
+        1,
+        1,
+        1,
+        3,
+        1,
+        1,
+        1,
+        1,
+        3,
+        -3,
+        1,
+        1,
+        1,
+        -1,
+        3,
+        1,
+        1,
+        -1,
+        1,
+        3,
+        1,
+        -1,
+        1,
+        1,
+        3,
+        3,
+        -1,
+        1,
+        1,
+        1,
+        -3,
+        1,
+        1,
+        1,
+        -1,
+        3,
+        1,
+        1,
+        -1,
+        1,
+        3,
+        -3,
+        -1,
+        1,
+        1,
+        -1,
+        -3,
+        1,
+        1,
+        -1,
+        -1,
+        3,
+        1,
+        -1,
+        -1,
+        1,
+        3,
+        3,
+        1,
+        -1,
+        1,
+        1,
+        3,
+        -1,
+        1,
+        1,
+        1,
+        -3,
+        1,
+        1,
+        1,
+        -1,
+        3,
+        -3,
+        1,
+        -1,
+        1,
+        -1,
+        3,
+        -1,
+        1,
+        -1,
+        1,
+        -3,
+        1,
+        -1,
+        1,
+        -1,
+        3,
+        3,
+        -1,
+        -1,
+        1,
+        1,
+        -3,
+        -1,
+        1,
+        1,
+        -1,
+        -3,
+        1,
+        1,
+        -1,
+        -1,
+        3,
+        -3,
+        -1,
+        -1,
+        1,
+        -1,
+        -3,
+        -1,
+        1,
+        -1,
+        -1,
+        -3,
+        1,
+        -1,
+        -1,
+        -1,
+        3,
+        3,
+        1,
+        1,
+        -1,
+        1,
+        3,
+        1,
+        -1,
+        1,
+        1,
+        3,
+        -1,
+        1,
+        1,
+        1,
+        -3,
+        -3,
+        1,
+        1,
+        -1,
+        -1,
+        3,
+        1,
+        -1,
+        -1,
+        1,
+        3,
+        -1,
+        -1,
+        1,
+        1,
+        -3,
+        3,
+        -1,
+        1,
+        -1,
+        1,
+        -3,
+        1,
+        -1,
+        1,
+        -1,
+        3,
+        -1,
+        1,
+        -1,
+        1,
+        -3,
+        -3,
+        -1,
+        1,
+        -1,
+        -1,
+        -3,
+        1,
+        -1,
+        -1,
+        -1,
+        3,
+        -1,
+        -1,
+        -1,
+        1,
+        -3,
+        3,
+        1,
+        -1,
+        -1,
+        1,
+        3,
+        -1,
+        -1,
+        1,
+        1,
+        -3,
+        -1,
+        1,
+        1,
+        -1,
+        -3,
+        -3,
+        1,
+        -1,
+        -1,
+        -1,
+        3,
+        -1,
+        -1,
+        -1,
+        1,
+        -3,
+        -1,
+        -1,
+        1,
+        -1,
+        -3,
+        3,
+        -1,
+        -1,
+        -1,
+        1,
+        -3,
+        -1,
+        -1,
+        1,
+        -1,
+        -3,
+        -1,
+        1,
+        -1,
+        -1,
+        -3,
+        -3,
+        -1,
+        -1,
+        -1,
+        -1,
+        -3,
+        -1,
+        -1,
+        -1,
+        -1,
+        -3,
+        -1,
+        -1,
+        -1,
+        -1,
+        -3,
+    ],
+    dtype=np.int64,
+)
 
 STRETCH_CONSTANT2 = -0.211324865405187  # (1/Math.sqrt(2+1)-1)/2
 SQUISH_CONSTANT2 = 0.366025403784439  # (Math.sqrt(2+1)-1)/2
@@ -267,16 +680,14 @@ def _init(seed=DEFAULT_SEED):
 @njit(cache=True)
 def _extrapolate2(perm, xsb, ysb, dx, dy):
     index = perm[(perm[xsb & 0xFF] + ysb) & 0xFF] & 0x0E
-    g1, g2 = GRADIENTS2[index:index + 2]
+    g1, g2 = GRADIENTS2[index : index + 2]
     return g1 * dx + g2 * dy
 
 
 @njit(cache=True)
 def _extrapolate3(perm, perm_grad_index3, xsb, ysb, zsb, dx, dy, dz):
-    index = perm_grad_index3[
-        (perm[(perm[xsb & 0xFF] + ysb) & 0xFF] + zsb) & 0xFF
-        ]
-    g1, g2, g3 = GRADIENTS3[index:index + 3]
+    index = perm_grad_index3[(perm[(perm[xsb & 0xFF] + ysb) & 0xFF] + zsb) & 0xFF]
+    g1, g2, g3 = GRADIENTS3[index : index + 3]
     return g1 * dx + g2 * dy + g3 * dz
 
 
@@ -327,7 +738,9 @@ def _noise2(x, y, perm):
 
     if in_sum <= 1:  # We're inside the triangle (2-Simplex) at (0,0)
         zins = 1 - in_sum
-        if zins > xins or zins > yins:  # (0,0) is one of the closest two triangular vertices
+        if (
+            zins > xins or zins > yins
+        ):  # (0,0) is one of the closest two triangular vertices
             if xins > yins:
                 xsv_ext = xsb + 1
                 ysv_ext = ysb - 1
@@ -345,7 +758,9 @@ def _noise2(x, y, perm):
             dy_ext = dy0 - 1 - 2 * SQUISH_CONSTANT2
     else:  # We're inside the triangle (2-Simplex) at (1,1)
         zins = 2 - in_sum
-        if zins < xins or zins < yins:  # (0,0) is one of the closest two triangular vertices
+        if (
+            zins < xins or zins < yins
+        ):  # (0,0) is one of the closest two triangular vertices
             if xins > yins:
                 xsv_ext = xsb + 2
                 ysv_ext = ysb + 0
@@ -376,7 +791,9 @@ def _noise2(x, y, perm):
     attn_ext = 2 - dx_ext * dx_ext - dy_ext * dy_ext
     if attn_ext > 0:
         attn_ext *= attn_ext
-        value += attn_ext * attn_ext * _extrapolate2(perm, xsv_ext, ysv_ext, dx_ext, dy_ext)
+        value += (
+            attn_ext * attn_ext * _extrapolate2(perm, xsv_ext, ysv_ext, dx_ext, dy_ext)
+        )
 
     return value / NORM_CONSTANT2
 
@@ -424,7 +841,6 @@ def _noise3(x, y, z, perm, perm_grad_index3):
 
     value = 0
     if in_sum <= 1:  # We're inside the tetrahedron (3-Simplex) at (0,0,0)
-
         # Determine which two of (0,0,1), (0,1,0), (1,0,0) are closest.
         a_point = 0x01
         a_score = xins
@@ -440,8 +856,12 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         # Now we determine the two lattice points not part of the tetrahedron that may contribute.
         # This depends on the closest two tetrahedral vertices, including (0,0,0)
         wins = 1 - in_sum
-        if wins > a_score or wins > b_score:  # (0,0,0) is one of the closest two tetrahedral vertices.
-            c = b_point if (b_score > a_score) else a_point  # Our other closest vertex is the closest out of a and b.
+        if (
+            wins > a_score or wins > b_score
+        ):  # (0,0,0) is one of the closest two tetrahedral vertices.
+            c = (
+                b_point if (b_score > a_score) else a_point
+            )  # Our other closest vertex is the closest out of a and b.
 
             if (c & 0x01) == 0:
                 xsv_ext0 = xsb - 1
@@ -474,7 +894,9 @@ def _noise3(x, y, z, perm, perm_grad_index3):
                 zsv_ext0 = zsv_ext1 = zsb + 1
                 dz_ext0 = dz_ext1 = dz0 - 1
         else:  # (0,0,0) is not one of the closest two tetrahedral vertices.
-            c = (a_point | b_point)  # Our two extra vertices are determined by the closest two.
+            c = (
+                a_point | b_point
+            )  # Our two extra vertices are determined by the closest two.
 
             if (c & 0x01) == 0:
                 xsv_ext0 = xsb
@@ -510,7 +932,13 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn0 = 2 - dx0 * dx0 - dy0 * dy0 - dz0 * dz0
         if attn0 > 0:
             attn0 *= attn0
-            value += attn0 * attn0 * _extrapolate3(perm, perm_grad_index3, xsb + 0, ysb + 0, zsb + 0, dx0, dy0, dz0)
+            value += (
+                attn0
+                * attn0
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 0, ysb + 0, zsb + 0, dx0, dy0, dz0
+                )
+            )
 
         # Contribution (1,0,0)
         dx1 = dx0 - 1 - SQUISH_CONSTANT3
@@ -519,7 +947,13 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn1 = 2 - dx1 * dx1 - dy1 * dy1 - dz1 * dz1
         if attn1 > 0:
             attn1 *= attn1
-            value += attn1 * attn1 * _extrapolate3(perm, perm_grad_index3, xsb + 1, ysb + 0, zsb + 0, dx1, dy1, dz1)
+            value += (
+                attn1
+                * attn1
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 1, ysb + 0, zsb + 0, dx1, dy1, dz1
+                )
+            )
 
         # Contribution (0,1,0)
         dx2 = dx0 - 0 - SQUISH_CONSTANT3
@@ -528,7 +962,13 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn2 = 2 - dx2 * dx2 - dy2 * dy2 - dz2 * dz2
         if attn2 > 0:
             attn2 *= attn2
-            value += attn2 * attn2 * _extrapolate3(perm, perm_grad_index3, xsb + 0, ysb + 1, zsb + 0, dx2, dy2, dz2)
+            value += (
+                attn2
+                * attn2
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 0, ysb + 1, zsb + 0, dx2, dy2, dz2
+                )
+            )
 
         # Contribution (0,0,1)
         dx3 = dx2
@@ -537,9 +977,14 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn3 = 2 - dx3 * dx3 - dy3 * dy3 - dz3 * dz3
         if attn3 > 0:
             attn3 *= attn3
-            value += attn3 * attn3 * _extrapolate3(perm, perm_grad_index3, xsb + 0, ysb + 0, zsb + 1, dx3, dy3, dz3)
+            value += (
+                attn3
+                * attn3
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 0, ysb + 0, zsb + 1, dx3, dy3, dz3
+                )
+            )
     elif in_sum >= 2:  # We're inside the tetrahedron (3-Simplex) at (1,1,1)
-
         # Determine which two tetrahedral vertices are the closest, out of (1,1,0), (1,0,1), (0,1,1) but not (1,1,1).
         a_point = 0x06
         a_score = xins
@@ -555,8 +1000,12 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         # Now we determine the two lattice points not part of the tetrahedron that may contribute.
         # This depends on the closest two tetrahedral vertices, including (1,1,1)
         wins = 3 - in_sum
-        if wins < a_score or wins < b_score:  # (1,1,1) is one of the closest two tetrahedral vertices.
-            c = b_point if (b_score < a_score) else a_point  # Our other closest vertex is the closest out of a and b.
+        if (
+            wins < a_score or wins < b_score
+        ):  # (1,1,1) is one of the closest two tetrahedral vertices.
+            c = (
+                b_point if (b_score < a_score) else a_point
+            )  # Our other closest vertex is the closest out of a and b.
 
             if (c & 0x01) != 0:
                 xsv_ext0 = xsb + 2
@@ -589,7 +1038,9 @@ def _noise3(x, y, z, perm, perm_grad_index3):
                 zsv_ext0 = zsv_ext1 = zsb
                 dz_ext0 = dz_ext1 = dz0 - 3 * SQUISH_CONSTANT3
         else:  # (1,1,1) is not one of the closest two tetrahedral vertices.
-            c = (a_point & b_point)  # Our two extra vertices are determined by the closest two.
+            c = (
+                a_point & b_point
+            )  # Our two extra vertices are determined by the closest two.
 
             if (c & 0x01) != 0:
                 xsv_ext0 = xsb + 1
@@ -628,7 +1079,13 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn3 = 2 - dx3 * dx3 - dy3 * dy3 - dz3 * dz3
         if attn3 > 0:
             attn3 *= attn3
-            value += attn3 * attn3 * _extrapolate3(perm, perm_grad_index3, xsb + 1, ysb + 1, zsb + 0, dx3, dy3, dz3)
+            value += (
+                attn3
+                * attn3
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 1, ysb + 1, zsb + 0, dx3, dy3, dz3
+                )
+            )
 
         # Contribution (1,0,1)
         dx2 = dx3
@@ -637,7 +1094,13 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn2 = 2 - dx2 * dx2 - dy2 * dy2 - dz2 * dz2
         if attn2 > 0:
             attn2 *= attn2
-            value += attn2 * attn2 * _extrapolate3(perm, perm_grad_index3, xsb + 1, ysb + 0, zsb + 1, dx2, dy2, dz2)
+            value += (
+                attn2
+                * attn2
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 1, ysb + 0, zsb + 1, dx2, dy2, dz2
+                )
+            )
 
         # Contribution (0,1,1)
         dx1 = dx0 - 0 - 2 * SQUISH_CONSTANT3
@@ -646,7 +1109,13 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn1 = 2 - dx1 * dx1 - dy1 * dy1 - dz1 * dz1
         if attn1 > 0:
             attn1 *= attn1
-            value += attn1 * attn1 * _extrapolate3(perm, perm_grad_index3, xsb + 0, ysb + 1, zsb + 1, dx1, dy1, dz1)
+            value += (
+                attn1
+                * attn1
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 0, ysb + 1, zsb + 1, dx1, dy1, dz1
+                )
+            )
 
         # Contribution (1,1,1)
         dx0 = dx0 - 1 - 3 * SQUISH_CONSTANT3
@@ -655,7 +1124,13 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn0 = 2 - dx0 * dx0 - dy0 * dy0 - dz0 * dz0
         if attn0 > 0:
             attn0 *= attn0
-            value += attn0 * attn0 * _extrapolate3(perm, perm_grad_index3, xsb + 1, ysb + 1, zsb + 1, dx0, dy0, dz0)
+            value += (
+                attn0
+                * attn0
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 1, ysb + 1, zsb + 1, dx0, dy0, dz0
+                )
+            )
     else:  # We're inside the octahedron (Rectified 3-Simplex) in between.
         # Decide between point (0,0,1) and (1,1,0) as closest
         p1 = xins + yins
@@ -702,7 +1177,6 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         # Where each of the two closest points are determines how the extra two vertices are calculated.
         if a_is_further_side == b_is_further_side:
             if a_is_further_side:  # Both closest points on (1,1,1) side
-
                 # One of the two extra points is (1,1,1)
                 dx_ext0 = dx0 - 1 - 3 * SQUISH_CONSTANT3
                 dy_ext0 = dy0 - 1 - 3 * SQUISH_CONSTANT3
@@ -712,7 +1186,7 @@ def _noise3(x, y, z, perm, perm_grad_index3):
                 zsv_ext0 = zsb + 1
 
                 # Other extra point is based on the shared axis.
-                c = (a_point & b_point)
+                c = a_point & b_point
                 if (c & 0x01) != 0:
                     dx_ext1 = dx0 - 2 - 2 * SQUISH_CONSTANT3
                     dy_ext1 = dy0 - 2 * SQUISH_CONSTANT3
@@ -735,7 +1209,6 @@ def _noise3(x, y, z, perm, perm_grad_index3):
                     ysv_ext1 = ysb
                     zsv_ext1 = zsb + 2
             else:  # Both closest points on (0,0,0) side
-
                 # One of the two extra points is (0,0,0)
                 dx_ext0 = dx0
                 dy_ext0 = dy0
@@ -745,7 +1218,7 @@ def _noise3(x, y, z, perm, perm_grad_index3):
                 zsv_ext0 = zsb
 
                 # Other extra point is based on the omitted axis.
-                c = (a_point | b_point)
+                c = a_point | b_point
                 if (c & 0x01) == 0:
                     dx_ext1 = dx0 + 1 - SQUISH_CONSTANT3
                     dy_ext1 = dy0 - 1 - SQUISH_CONSTANT3
@@ -822,7 +1295,13 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn1 = 2 - dx1 * dx1 - dy1 * dy1 - dz1 * dz1
         if attn1 > 0:
             attn1 *= attn1
-            value += attn1 * attn1 * _extrapolate3(perm, perm_grad_index3, xsb + 1, ysb + 0, zsb + 0, dx1, dy1, dz1)
+            value += (
+                attn1
+                * attn1
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 1, ysb + 0, zsb + 0, dx1, dy1, dz1
+                )
+            )
 
         # Contribution (0,1,0)
         dx2 = dx0 - 0 - SQUISH_CONSTANT3
@@ -831,7 +1310,13 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn2 = 2 - dx2 * dx2 - dy2 * dy2 - dz2 * dz2
         if attn2 > 0:
             attn2 *= attn2
-            value += attn2 * attn2 * _extrapolate3(perm, perm_grad_index3, xsb + 0, ysb + 1, zsb + 0, dx2, dy2, dz2)
+            value += (
+                attn2
+                * attn2
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 0, ysb + 1, zsb + 0, dx2, dy2, dz2
+                )
+            )
 
         # Contribution (0,0,1)
         dx3 = dx2
@@ -840,7 +1325,13 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn3 = 2 - dx3 * dx3 - dy3 * dy3 - dz3 * dz3
         if attn3 > 0:
             attn3 *= attn3
-            value += attn3 * attn3 * _extrapolate3(perm, perm_grad_index3, xsb + 0, ysb + 0, zsb + 1, dx3, dy3, dz3)
+            value += (
+                attn3
+                * attn3
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 0, ysb + 0, zsb + 1, dx3, dy3, dz3
+                )
+            )
 
         # Contribution (1,1,0)
         dx4 = dx0 - 1 - 2 * SQUISH_CONSTANT3
@@ -849,7 +1340,13 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn4 = 2 - dx4 * dx4 - dy4 * dy4 - dz4 * dz4
         if attn4 > 0:
             attn4 *= attn4
-            value += attn4 * attn4 * _extrapolate3(perm, perm_grad_index3, xsb + 1, ysb + 1, zsb + 0, dx4, dy4, dz4)
+            value += (
+                attn4
+                * attn4
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 1, ysb + 1, zsb + 0, dx4, dy4, dz4
+                )
+            )
 
         # Contribution (1,0,1)
         dx5 = dx4
@@ -858,7 +1355,13 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn5 = 2 - dx5 * dx5 - dy5 * dy5 - dz5 * dz5
         if attn5 > 0:
             attn5 *= attn5
-            value += attn5 * attn5 * _extrapolate3(perm, perm_grad_index3, xsb + 1, ysb + 0, zsb + 1, dx5, dy5, dz5)
+            value += (
+                attn5
+                * attn5
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 1, ysb + 0, zsb + 1, dx5, dy5, dz5
+                )
+            )
 
         # Contribution (0,1,1)
         dx6 = dx0 - 0 - 2 * SQUISH_CONSTANT3
@@ -867,13 +1370,22 @@ def _noise3(x, y, z, perm, perm_grad_index3):
         attn6 = 2 - dx6 * dx6 - dy6 * dy6 - dz6 * dz6
         if attn6 > 0:
             attn6 *= attn6
-            value += attn6 * attn6 * _extrapolate3(perm, perm_grad_index3, xsb + 0, ysb + 1, zsb + 1, dx6, dy6, dz6)
+            value += (
+                attn6
+                * attn6
+                * _extrapolate3(
+                    perm, perm_grad_index3, xsb + 0, ysb + 1, zsb + 1, dx6, dy6, dz6
+                )
+            )
 
     # First extra vertex
     attn_ext0 = 2 - dx_ext0 * dx_ext0 - dy_ext0 * dy_ext0 - dz_ext0 * dz_ext0
     if attn_ext0 > 0:
         attn_ext0 *= attn_ext0
-        value += attn_ext0 * attn_ext0 * _extrapolate3(
+        value += (
+            attn_ext0
+            * attn_ext0
+            * _extrapolate3(
                 perm,
                 perm_grad_index3,
                 xsv_ext0,
@@ -881,14 +1393,18 @@ def _noise3(x, y, z, perm, perm_grad_index3):
                 zsv_ext0,
                 dx_ext0,
                 dy_ext0,
-                dz_ext0
-                )
+                dz_ext0,
+            )
+        )
 
     # Second extra vertex
     attn_ext1 = 2 - dx_ext1 * dx_ext1 - dy_ext1 * dy_ext1 - dz_ext1 * dz_ext1
     if attn_ext1 > 0:
         attn_ext1 *= attn_ext1
-        value += attn_ext1 * attn_ext1 * _extrapolate3(
+        value += (
+            attn_ext1
+            * attn_ext1
+            * _extrapolate3(
                 perm,
                 perm_grad_index3,
                 xsv_ext1,
@@ -896,8 +1412,9 @@ def _noise3(x, y, z, perm, perm_grad_index3):
                 zsv_ext1,
                 dx_ext1,
                 dy_ext1,
-                dz_ext1
-                )
+                dz_ext1,
+            )
+        )
 
     return value / NORM_CONSTANT3
 
@@ -918,7 +1435,9 @@ def _noise3b(X, Y, Z, perm, perm_grad_index3):
     for z in prange(Z.size):
         for y in prange(Y.size):
             for x in prange(X.size):
-                noise[(y * Y.size + x) + (z * Y.size * X.size)] = _noise3(X[x], Y[y], Z[z], perm, perm_grad_index3)
+                noise[(y * Y.size + x) + (z * Y.size * X.size)] = _noise3(
+                    X[x], Y[y], Z[z], perm, perm_grad_index3
+                )
     return noise.reshape((Z.size, Y.size, X.size))
 
 
@@ -927,9 +1446,14 @@ def _noise3aSlow(X, Y, T, FEATURE_SIZE, perm, perm_grad_index3):
     for t in range(T):
         for x in range(X):
             for y in range(Y):
-                img[t, x, y] = _noise3(x / FEATURE_SIZE, y / FEATURE_SIZE, t / FEATURE_SIZE, perm, perm_grad_index3)
+                img[t, x, y] = _noise3(
+                    x / FEATURE_SIZE,
+                    y / FEATURE_SIZE,
+                    t / FEATURE_SIZE,
+                    perm,
+                    perm_grad_index3,
+                )
     return img
-
 
 
 def testing_main():
@@ -962,7 +1486,6 @@ def testing_main():
     #
     # print(np.average(np.array(times)))
 
-
     # print(_noise3aSlow(img_size[0],img_size[1],slices,feature_size,simplexObj._perm,simplexObj._perm_grad_index3).shape)
     # times = []
     # for _ in tqdm(range(100)):
@@ -981,14 +1504,13 @@ def testing_main():
 
     print(three_noise.shape)
     fig, ax = plt.subplots()
-    imgs = [[ax.imshow(three_noise[x], animated=True, cmap='gray')] for x in range(slices)]
+    imgs = [
+        [ax.imshow(three_noise[x], animated=True, cmap="gray")] for x in range(slices)
+    ]
     ani = animation.ArtistAnimation(
-            fig, imgs, interval=50, blit=True,
-            repeat_delay=1000
-            )
-    ani.save(f'./SIMPLEX_TEST_Oct.mp4')
-
-
+        fig, imgs, interval=50, blit=True, repeat_delay=1000
+    )
+    ani.save(f"./SIMPLEX_TEST_Oct.mp4")
 
     # t = np.arange(0, slices) / feature_size
     # x = np.arange(0, img_size[0]) / feature_size  # indices divided by feature size
@@ -1011,7 +1533,6 @@ def testing_main():
     # ani = animation.ArtistAnimation(fig, imgs, interval=50, blit=True,
     #                                 repeat_delay=1000)
     # ani.save(f'./SIMPLEX_TEST_optimB.mp4')
-
 
     # three_noise = _noise3aSlow(*img_size,slices,feature_size, perm, perm_grad_index3)
     #

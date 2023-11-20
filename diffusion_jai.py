@@ -8,40 +8,7 @@ https://github.com/dome272/Diffusion-Models-pytorch
 
 from utils import *
 import baselines.simplex_noise
-import time
-
-
-import torchvision.transforms.functional as TF
-
-
-def random_transform_vectorized(tensor, target_size):
-    # Randomly sample 620 distinct indices
-    indices = torch.randperm(target_size)[:target_size]
-    # Extract the slices
-    sliced_tensor = tensor[:, indices, :, :]
-
-    # Random rotations (0, 90, 180, 270 degrees) for the entire batch
-    angles = torch.randint(0, 4, (sliced_tensor.size(1),)) * 90
-    sliced_tensor = torch.stack(
-        [
-            TF.rotate(sliced_tensor[:, i, :, :], angles[i].item())
-            for i in range(sliced_tensor.size(1))
-        ]
-    )
-
-    # Random horizontal flip for the entire batch
-    flip_h = torch.rand(sliced_tensor.size(1)) < 0.5
-    for i in range(sliced_tensor.size(1)):
-        if flip_h[i]:
-            sliced_tensor[:, i, :, :] = TF.hflip(sliced_tensor[:, i, :, :])
-
-    # Random vertical flip for the entire batch
-    flip_v = torch.rand(sliced_tensor.size(1)) < 0.5
-    for i in range(sliced_tensor.size(1)):
-        if flip_v[i]:
-            sliced_tensor[:, i, :, :] = TF.vflip(sliced_tensor[:, i, :, :])
-
-    return sliced_tensor
+from tqdm.auto import tqdm
 
 
 class Diffusion:
@@ -62,13 +29,9 @@ class Diffusion:
 
     def noise_images(self, x, t, pyramid=False, simplex=False):
         sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None, None]
-        sqrt_one_minus_alpha_hat = torch.sqrt(1 - self.alpha_hat[t])[
-            :, None, None, None
-        ]
+        sqrt_one_minus_alpha_hat = torch.sqrt(1 - self.alpha_hat[t])[:, None, None, None]
         if simplex == True:
-            noise = baselines.simplex_noise.generate_simplex_noise(
-                x, t, in_channels=x.shape[1]
-            )
+            baselines.simplex_noise.generate_simplex_noise(x, t, in_channels=x.shape[1])
         elif pyramid == True:
             noise = pyramid_noise_like(x.shape[0], x.shape[1], x.device)
         else:
@@ -81,11 +44,7 @@ class Diffusion:
     def ddpm_mu_t(self, x, predicted_noise, t):
         alpha = self.alpha[t][:, None, None, None]
         alpha_hat = self.alpha_hat[t][:, None, None, None]
-        return (
-            1
-            / torch.sqrt(alpha)
-            * (x - ((1 - alpha) / (torch.sqrt(1 - alpha_hat))) * predicted_noise)
-        )
+        return 1 / torch.sqrt(alpha) * (x - ((1 - alpha) / (torch.sqrt(1 - alpha_hat))) * predicted_noise)
 
     def ddpm_mean_t(self, x, t, predicted_noise=None, x_0=None):
         if predicted_noise == None and x_0 == None:
@@ -96,61 +55,35 @@ class Diffusion:
         beta = self.beta[t][:, None, None, None]
         alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
         if x_0 == None:
-            pred_x0 = (
-                1 / torch.sqrt(alpha_hat) * x
-                - torch.sqrt((1 - alpha_hat) / (alpha_hat)) * predicted_noise
-            )
+            pred_x0 = 1 / torch.sqrt(alpha_hat) * x - torch.sqrt((1 - alpha_hat) / (alpha_hat)) * predicted_noise
             pred_x0 = pred_x0.clamp(-1, 1)
+            # pred_x0 = clamp_to_spatial_quantile(pred_x0,0.99)
             x_0 = pred_x0
         w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
         wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
         return w0 * x_0 + wt * x
 
-    def simplex_sample(
-        self, model, n, labels, channels, cfg_scale=3, pyramid=False, simplex=False
-    ):  # cfg scale determines the influence of the conditional model
-        model.eval()
-        with torch.no_grad():
-            if simplex == True:
-                tmp = torch.randn((n, channels, self.img_size, self.img_size)).to(
-                    self.device
-                )
-                t = (torch.ones(n) * 1).long().to(self.device)
-                x = baselines.simplex_noise.generate_simplex_noise(
-                    tmp, t, in_channels=tmp.shape[1]
-                )
-            elif pyramid == True:
-                x = pyramid_noise_like(n, channels, self.device)
-            else:
-                x = torch.randn((n, channels, self.img_size, self.img_size)).to(
-                    self.device
-                )
-            for i in tqdm(reversed(range(1, self.noise_steps)), position=0):
-                t = (torch.ones(n) * i).long().to(self.device)
-                predicted_noise = model(x, t)
-                if cfg_scale > 0:
-                    uncond_predicted_noise = model(x, t, labels)
-                    predicted_noise = torch.lerp(
-                        uncond_predicted_noise, predicted_noise, cfg_scale
-                    )
-                beta = self.beta[t][:, None, None, None]
-                if i > 1:
-                    if simplex == True:
-                        noise = baselines.simplex_noise.generate_simplex_noise(
-                            x, t, in_channels=x.shape[1]
-                        )
-                    elif pyramid == True:
-                        noise = pyramid_noise_like(n, channels, self.device)
-                    else:
-                        noise = torch.randn_like(x)
-                else:
-                    noise = torch.zeros_like(x)
-                # x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
-                x = self.ddpm_mean_t(x, t, predicted_noise) + torch.sqrt(beta) * noise
-        # model.train()
-        # x = (x.clamp(-1, 1) + 1) / 2
-        # x = (x * 255).type(torch.uint8)
-        return x
+    def ddim_mu_t(self, x, predicted_noise, t):
+        alpha = self.alpha[t][:, None, None, None]
+        alpha_hat = self.alpha_hat[t][:, None, None, None]
+        return 1 / torch.sqrt(alpha) * (x - ((1 - alpha) / (torch.sqrt(1 - alpha_hat))) * predicted_noise)
+
+    def ddim_mean_t(self, x, t, predicted_noise=None, x_0=None):
+        if predicted_noise == None and x_0 == None:
+            print("Either noise or x_0 have to be given to calculate x_t-1.")
+            exit(1)
+        alpha = self.alpha[t][:, None, None, None]
+        alpha_hat = self.alpha_hat[t][:, None, None, None]
+        beta = self.beta[t][:, None, None, None]
+        alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
+        if x_0 == None:
+            pred_x0 = 1 / torch.sqrt(alpha_hat) * x - torch.sqrt((1 - alpha_hat) / (alpha_hat)) * predicted_noise
+            pred_x0 = pred_x0.clamp(-1, 1)
+            # pred_x0 = clamp_to_spatial_quantile(pred_x0,0.99)
+            x_0 = pred_x0
+        w0 = torch.sqrt(alpha_hat_minus_one) * beta / (1 - alpha_hat)
+        wt = torch.sqrt(alpha) * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
+        return w0 * x_0 + wt * x
 
     def sample(
         self, model, n, labels, channels, cfg_scale=3, pyramid=False, simplex=False
@@ -158,34 +91,21 @@ class Diffusion:
         model.eval()
         with torch.no_grad():
             if simplex == True:
-                x = torch.randn((n, channels, self.img_size, self.img_size)).to(
-                    self.device
-                )
-                x = baselines.simplex_noise.generate_simplex_noise(
-                    x,
-                    (torch.ones(n) * self.noise_steps).long().to(self.device),
-                    in_channels=x.shape[1],
-                )
+                x = baselines.simplex_noise.generate_simplex_noise(x, t, in_channels=x.shape[1])
             elif pyramid == True:
                 x = pyramid_noise_like(n, channels, self.device)
             else:
-                x = torch.randn((n, channels, self.img_size, self.img_size)).to(
-                    self.device
-                )
+                x = torch.randn((n, channels, self.img_size, self.img_size)).to(self.device)
             for i in tqdm(reversed(range(1, self.noise_steps)), position=0):
                 t = (torch.ones(n) * i).long().to(self.device)
                 predicted_noise = model(x, t)
                 if cfg_scale > 0:
                     uncond_predicted_noise = model(x, t, labels)
-                    predicted_noise = torch.lerp(
-                        uncond_predicted_noise, predicted_noise, cfg_scale
-                    )
+                    predicted_noise = torch.lerp(uncond_predicted_noise, predicted_noise, cfg_scale)
                 beta = self.beta[t][:, None, None, None]
                 if i > 1:
                     if simplex == True:
-                        noise = baselines.simplex_noise.generate_simplex_noise(
-                            x, t, in_channels=x.shape[1]
-                        )
+                        noise = baselines.simplex_noise.generate_simplex_noise(x, t, in_channels=x.shape[1])
                     elif pyramid == True:
                         noise = pyramid_noise_like(n, channels, self.device)
                     else:
@@ -195,8 +115,42 @@ class Diffusion:
                 x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
                 # x = self.ddpm_mu_t_2(x, predicted_noise, t) + torch.sqrt(beta) * noise
         model.train()
-        # x = (x.clamp(-1, 1) + 1) / 2
-        # x = (x * 255).type(torch.uint8)
+        x = (x.clamp(-1, 1) + 1) / 2
+        x = (x * 255).type(torch.uint8)
+        return x
+
+    def sample_ddim(
+        self, model, n, labels, channels, cfg_scale=3, pyramid=False, simplex=False
+    ):  # cfg scale determines the influence of the conditional model
+        model.eval()
+        with torch.no_grad():
+            if simplex == True:
+                x = baselines.simplex_noise.generate_simplex_noise(x, t, in_channels=x.shape[1])
+            elif pyramid == True:
+                x = pyramid_noise_like(n, channels, self.device)
+            else:
+                x = torch.randn((n, channels, self.img_size, self.img_size)).to(self.device)
+            for i in tqdm(reversed(range(1, self.noise_steps)), position=0):
+                t = (torch.ones(n) * i).long().to(self.device)
+                predicted_noise = model(x, t)
+                if cfg_scale > 0:
+                    uncond_predicted_noise = model(x, t, labels)
+                    predicted_noise = torch.lerp(uncond_predicted_noise, predicted_noise, cfg_scale)
+                beta = self.beta[t][:, None, None, None]
+                if i > 1:
+                    if simplex == True:
+                        noise = baselines.simplex_noise.generate_simplex_noise(x, t, in_channels=x.shape[1])
+                    elif pyramid == True:
+                        noise = pyramid_noise_like(n, channels, self.device)
+                    else:
+                        noise = torch.randn_like(x)
+                else:
+                    noise = torch.zeros_like(x)
+                x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(beta) * noise
+                # x = self.ddpm_mu_t_2(x, predicted_noise, t) + torch.sqrt(beta) * noise
+        model.train()
+        x = (x.clamp(-1, 1) + 1) / 2
+        x = (x * 255).type(torch.uint8)
         return x
 
     def dpm_encoder(self, model, images, timestemp=None):
@@ -284,7 +238,55 @@ class Diffusion:
                 zs[:, i - 1] = z_t
         return zs
 
-    def dpm_differences(self, model, images, start=100, stop=None, pyramid=False):
+    def dpm_differences(self, model, images, start=100, stop=None, pyramid=False, return_chain=False, l2=True):
+        if stop == None:
+            stop = self.noise_steps
+        if start == 0:
+            start = 1
+        num_images = images.shape[0]
+        model.eval()
+        with torch.no_grad():
+            # First, sample from the forward process
+            xts = torch.zeros(
+                (
+                    num_images,
+                    stop - start,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            zs = torch.zeros(
+                (
+                    num_images,
+                    stop - start,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            for i in tqdm(reversed(range(start, stop))):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                x_t, noise = self.noise_images(images, t, pyramid=pyramid)
+                xts[:, i - start] = x_t
+
+            # calculate the differences
+            real_chains = torch.zeros_like(zs)
+            pred_chains = torch.zeros_like(zs)
+            for i in tqdm(reversed(range(start, stop))):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                x_t = xts[:, i - start]
+                predicted_noise = model(x_t, t)
+                mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
+                mean = self.ddpm_mean_t(x_t, t, x_0=images)
+                # what was supposed to be predicted and what is predicted
+                z_t = ((mean - mu_t) ** 2) if l2 else torch.abs(mean - mu_t)
+                pred_chains[:, i - start] = mu_t
+                real_chains[:, i - start] = mean
+                zs[:, i - start] = z_t
+        return zs if not return_chain else (real_chains, pred_chains)
+
+    def ddim_differences(self, model, images, start=100, stop=None, pyramid=False):
         if stop == None:
             stop = self.noise_steps
         if start == 0:
@@ -328,9 +330,59 @@ class Diffusion:
                 zs[:, i - start] = z_t
         return zs
 
-    def skip_differences(
-        self, model, images, start=100, stop=None, skip=25, pyramid=False
-    ):
+    def skip_differences(self, model, images, start=100, stop=None, skip=25, pyramid=False, return_chain=False):
+        if stop is None:
+            stop = self.noise_steps
+        if start == 0:
+            start = 1
+        num_images = images.shape[0]
+        model.eval()
+        with torch.no_grad():
+            # First, sample from the forward process
+            xts = torch.zeros(
+                (
+                    num_images,
+                    stop - start,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            zs = torch.zeros(
+                (
+                    num_images,
+                    int(((stop - start) / skip)),
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            for i in tqdm(reversed(range(start, stop))):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                x_t, noise = self.noise_images(images, t, pyramid=pyramid)
+                xts[:, i - start] = x_t
+
+            correct_chain = xts[:, -1]
+            predicted_chain = xts[:, -1]
+
+            pred_chains = torch.zeros_like(zs)
+            real_chains = torch.zeros_like(zs)
+
+            for i in tqdm(reversed(range(start, stop))):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                predicted_noise = model(predicted_chain, t)
+                predicted_chain = self.ddpm_mu_t(predicted_chain, predicted_noise, t)
+                correct_chain = self.ddpm_mean_t(correct_chain, t, x_0=images)
+                if i % skip == 0 or i == 1:
+                    z_t = (correct_chain - predicted_chain) ** 2
+                    zs[:, int((i - start) / skip)] = z_t
+                    pred_chains[:, int((i - start) / skip)] = predicted_chain
+                    real_chains[:, int((i - start) / skip)] = correct_chain
+                    predicted_chain = xts[:, i - start]
+                    correct_chain = xts[:, i - start]
+        return zs if not return_chain else (real_chains, pred_chains)
+
+    def skip_differences_ddim(self, model, images, start=100, stop=None, skip=25, pyramid=False):
         if stop is None:
             stop = self.noise_steps
         if start == 0:
@@ -368,8 +420,8 @@ class Diffusion:
             for i in tqdm(reversed(range(start, stop)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 predicted_noise = model(predicted_chain, t)
-                predicted_chain = self.ddpm_mu_t(predicted_chain, predicted_noise, t)
-                correct_chain = self.ddpm_mean_t(correct_chain, t, x_0=images)
+                predicted_chain = self.ddim_mu_t(predicted_chain, predicted_noise, t)
+                correct_chain = self.ddim_mean_t(correct_chain, t, x_0=images)
                 if i % skip == 0 or i == 1:
                     z_t = (correct_chain - predicted_chain) ** 2
                     zs[:, int((i - start) / skip)] = z_t
@@ -378,6 +430,57 @@ class Diffusion:
         return zs
 
     def differences_noise(self, model, images, start=100, stop=None, pyramid=False):
+        if stop is None:
+            stop = self.noise_steps
+        if start == 0:
+            start = 1
+        num_images = images.shape[0]
+        model.eval()
+        with torch.no_grad():
+            # First, sample from the forward process
+            xts = torch.zeros(
+                (
+                    num_images,
+                    stop - start,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            noises = torch.zeros(
+                (
+                    num_images,
+                    stop - start,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            zs = torch.zeros(
+                (
+                    num_images,
+                    stop - start,
+                    images.shape[1],
+                    images.shape[2],
+                    images.shape[3],
+                )
+            ).to(self.device)
+            for i in tqdm(reversed(range(start, stop)), position=0):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                x_t, noise = self.noise_images(images, t, pyramid=pyramid)
+                xts[:, i - start] = x_t
+                noises[:, i - start] = noise
+
+            for i in tqdm(reversed(range(start, stop)), position=0):
+                t = (torch.ones(num_images) * i).long().to(self.device)
+                x_t = xts[:, i - start]
+                true_noise = noises[:, i - start]
+                predicted_noise = model(x_t, t)
+                z_t = (predicted_noise - true_noise) ** 2
+                zs[:, i - start] = z_t
+        return zs
+
+    def differences_noise_ddim(self, model, images, start=100, stop=None, pyramid=False):
         if stop is None:
             stop = self.noise_steps
         if start == 0:
@@ -440,9 +543,7 @@ class Diffusion:
                 predicted_noise = model(x, t)
                 if cfg_scale > 0:
                     sample_noise = model(xts[:, i], t, None)
-                    predicted_noise = torch.lerp(
-                        sample_noise, predicted_noise, cfg_scale
-                    )
+                    predicted_noise = torch.lerp(sample_noise, predicted_noise, cfg_scale)
                 beta = self.beta[t][:, None, None, None]
                 if i > 1:
                     noise = torch.randn_like(x)
@@ -453,18 +554,9 @@ class Diffusion:
                 )
         return x
 
-    def ano_ddpm(
-        self,
-        model,
-        images,
-        num_steps,
-        simplex=False,
-        pyramid=False,
-        precomputed_noise=None,
-    ):
+    def ano_ddpm(self, model, images, num_steps, simplex=False, pyramid=False):
         model.eval()
         num_images = images.shape[0]
-
         with torch.no_grad():
             t = (torch.ones(num_images) * num_steps).long().to(self.device)
             x, noise = self.noise_images(images, t, simplex=simplex, pyramid=pyramid)
@@ -475,24 +567,9 @@ class Diffusion:
                 beta = self.beta[t][:, None, None, None]
                 alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
                 if i > 1:
-                    if simplex == True:
-                        # noise = baselines.simplex_noise.generate_simplex_noise(
-                        #     x, t, in_channels=x.shape[1]
-                        # )
-                        sampled_noise = random_transform_vectorized(
-                            precomputed_noise, x.shape[1] * x.shape[0]
-                        )
-                        sampled_noise = sampled_noise.reshape(
-                            x.shape[0], x.shape[1], x.shape[2], x.shape[3]
-                        )
-                        noise = sampled_noise.to(self.device)
-                        # noise = batched_noise[i].to(self.device)
-                    else:
-                        noise = torch.randn_like(x)
+                    noise = torch.randn_like(x)
                 else:
                     noise = torch.zeros_like(x)
                 var = beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
-                # x = self.ddpm_mean_t(x, t=t, predicted_noise=predicted_noise) + torch.sqrt(var) * noise
                 x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(var) * noise
-                # return predicted_noise
         return x

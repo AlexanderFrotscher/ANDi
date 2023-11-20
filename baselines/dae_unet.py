@@ -25,8 +25,8 @@ from math import sqrt
 import torch
 from torch import nn
 import torch.nn.functional as F
-from swish import CustomSwish
-from ws_conv import WNConv2d
+from .swish import CustomSwish
+from .ws_conv import WNConv2d
 
 
 def get_groups(channels: int) -> int:
@@ -46,14 +46,15 @@ def get_groups(channels: int) -> int:
 
 class UNet(nn.Module):
     def __init__(
-            self,
-            in_channels=1,
-            n_classes=2,
-            depth=5,
-            wf=6,
-            padding=False,
-            norm="group",
-            up_mode='upconv'):
+        self,
+        in_channels=1,
+        n_classes=2,
+        depth=5,
+        wf=6,
+        padding=False,
+        norm="group",
+        up_mode="upconv",
+    ):
         """
         A modified U-Net implementation [1].
 
@@ -75,7 +76,7 @@ class UNet(nn.Module):
                            'upsample' will use bilinear upsampling.
         """
         super(UNet, self).__init__()
-        assert up_mode in ('upconv', 'upsample')
+        assert up_mode in ("upconv", "upsample")
         self.padding = padding
         self.depth = depth
         prev_channels = in_channels
@@ -96,7 +97,6 @@ class UNet(nn.Module):
         self.last = nn.Conv2d(prev_channels, n_classes, kernel_size=1)
 
     def forward_down(self, x):
-
         blocks = []
         for i, down in enumerate(self.down_path):
             x = down(x)
@@ -162,11 +162,11 @@ class UNetConvBlock(nn.Module):
 class UNetUpBlock(nn.Module):
     def __init__(self, in_size, out_size, up_mode, padding, norm="group"):
         super(UNetUpBlock, self).__init__()
-        if up_mode == 'upconv':
+        if up_mode == "upconv":
             self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2)
-        elif up_mode == 'upsample':
+        elif up_mode == "upsample":
             self.up = nn.Sequential(
-                nn.Upsample(mode='bilinear', scale_factor=2),
+                nn.Upsample(mode="bilinear", scale_factor=2),
                 nn.Conv2d(in_size, out_size, kernel_size=1),
             )
 
@@ -176,7 +176,9 @@ class UNetUpBlock(nn.Module):
         _, _, layer_height, layer_width = layer.size()
         diff_y = (layer_height - target_size[0]) // 2
         diff_x = (layer_width - target_size[1]) // 2
-        return layer[:, :, diff_y: (diff_y + target_size[0]), diff_x: (diff_x + target_size[1])]
+        return layer[
+            :, :, diff_y : (diff_y + target_size[0]), diff_x : (diff_x + target_size[1])
+        ]
 
     def forward(self, x, bridge):
         up = self.up(x)
