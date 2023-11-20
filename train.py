@@ -18,16 +18,41 @@ import wandb
 from diffusion import *
 from modules import *
 from utils import *
+import time
 
 logging.basicConfig(format="%(message)s", level=logging.INFO)
 os.environ["WANDB__SERVICE_WAIT"] = "300"
+
 
 def train(args):
     make_dicts(args.run_name)
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[kwargs])
     device = accelerator.device
-    dataloader = Brats21(args, preload=True)
+    if accelerator.is_main_process:
+        wandb.init(entity="team-frotscher", project=args.run_name, config=args)
+
+    # dataloader = Brats21(args, preload=True)
+    # new version uses precut slices
+
+    accelerator.print("Loading dataset...")
+    time_start = time.time()
+
+    dataset = SlicesDataset(
+        directory="/mnt/qb/work/macke/jkapoor83/brats_data_slices", preload=True
+    )
+
+    time_end = time.time()
+    accelerator.print("Dataset loaded, took", time_end - time_start, "seconds")
+
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=8,
+        pin_memory=True,
+    )
+
     steps_per_epoch = int(np.ceil(len(dataloader.dataset) / args.batch_size))
     number_of_steps = steps_per_epoch * args.epochs
     model = UNet(
@@ -68,9 +93,9 @@ def train(args):
         model, ema_model, optimizer, scheduler, dataloader
     )
 
-    for epoch in range(args.epochs):
-        logging.info(f"Starting epoch {epoch}:")
-        pbar = tqdm(dataloader)
+    for epoch in range(232, args.epochs + 232):
+        accelerator.print(f"Starting epoch {epoch}:")
+        pbar = tqdm(dataloader) if accelerator.is_main_process else dataloader
         for i, (images) in enumerate(pbar):
             images = (images * 2) - 1  # normalization
             t = diffusion.sample_timesteps(images.shape[0]).to(device)
@@ -86,9 +111,11 @@ def train(args):
             optimizer.step()
             scheduler.step()
             ema.step_ema(ema_model, model)
-            wandb.log({"MSE": loss.item()})
+            if accelerator.is_main_process:
+                wandb.log({"MSE": loss.item()})
+                pbar.set_description(f"Loss: {loss.item():.4f}")
 
-        if epoch > 120 and epoch % 8 == 0 and accelerator.is_main_process:
+        if epoch > 232 and epoch % 4 == 0 and accelerator.is_main_process:
             my_model = accelerator.unwrap_model(model)
             my_ema_model = accelerator.unwrap_model(ema_model)
             # labels = torch.arange(args.num_classes).long().to(device)
@@ -128,25 +155,25 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.run_name = "Brats128_simplex"
-    args.epochs = 233
-    args.batch_size = 128
+    args.epochs = 100
+    args.batch_size = 160
     args.image_size = 128
     args.channels = 4
-    args.dataset_path = (
-        "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    )
+    base_path = "/scratch_local/jkapoor83-4570786"
+    # base_path = '/mnt/qb/baumgartner/rawdata'
+    args.dataset_path = f"{base_path}/BraTS2021_Training_Data"
     args.start_lr = 2e-5
     args.target_lr = 7e-5
-    args.path_to_csv = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data/splits/scans_train.csv"
-    args.train_continue = False
-    #args.current_model = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_ckpt.pt"
-    #args.current_ema = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_ema_ckpt.pt"
-    #args.current_opt = "/mnt/lustre/baumgartner/bkc035/normative-diffusion/models/Brats128_pyramid/320_optim.pt"
+    args.path_to_csv = f"{base_path}/BraTS2021_Training_Data/splits/scans_train.csv"
+    args.train_continue = True
+
+    args.current_model = "/mnt/qb/work/macke/jkapoor83/repos/normative-diffusion/models/Brats128_simplex/232_ckpt.pt"
+    args.current_ema = "/mnt/qb/work/macke/jkapoor83/repos/normative-diffusion/models/Brats128_simplex/232_ema_ckpt.pt"
+    args.current_opt = "/mnt/qb/work/macke/jkapoor83/repos/normative-diffusion/models/Brats128_simplex/232_optim.pt"
+
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )
-
-    wandb.init(entity="team-frotscher", project=args.run_name, config=args)
 
     train(args)
 
