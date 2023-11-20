@@ -27,6 +27,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
 
 
 def plot_images(images, mode="RGB"):
@@ -97,6 +98,40 @@ def upload_images(images, mode="RGB", **kwargs):
     return ndarr
 
 
+class SlicesDataset(Dataset):
+    """
+    To load slices saved as numpy files (4, 128, 128) in a directory.
+    These numpy files are created by the resize_slices.py script,
+    which resizes the slices created by split_healthy.py to 128x128.
+    These are all preprocessed slices, i.e. they are normalized.
+    """
+
+    def __init__(self, directory, preload=False):
+        super().__init__()
+        self.preload = preload
+        self.file_paths = [
+            os.path.join(directory, f)
+            for f in os.listdir(directory)
+            if f.endswith(".npy")
+        ]
+
+        if self.preload:
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                self.data = list(executor.map(np.load, self.file_paths))
+
+    def __len__(self):
+        return len(self.file_paths)
+
+    def __getitem__(self, idx):
+        if self.preload:
+            array = self.data[idx]
+        else:
+            array = np.load(self.file_paths[idx])
+
+        tensor = torch.from_numpy(array).float()
+        return tensor
+
+
 class BratsDataset(Dataset):
     """
     This class is based on https://www.kaggle.com/code/polomarco/brats20-3dunet-3dautoencoder and
@@ -155,7 +190,7 @@ class MRIDataVolume(Dataset):
         dataset_path: str,
         image_size: int,
         hist: bool,
-        shift: bool
+        shift: bool,
     ):
         self.df = df
         self.dataset_path = dataset_path
@@ -170,7 +205,7 @@ class MRIDataVolume(Dataset):
     def __getitem__(self, idx):
         if self.shift == True:
             id_ = self.df.loc[idx, "ShiftsID"]
-            patient_number = id_.split('_')[-1]
+            patient_number = id_.split("_")[-1]
         else:
             id_ = self.df.loc[idx, "BraTS21ID"]
             patient_number = id_
@@ -185,8 +220,8 @@ class MRIDataVolume(Dataset):
         mask[mask > 0.5] = 1
         mask[mask < 1] = 0
         mask = torch.from_numpy(mask)
-        mask = F.interpolate(mask[None,None],[128,128,155],mode='nearest-exact')
-        mask = mask[0,0].type(torch.bool)
+        mask = F.interpolate(mask[None, None], [128, 128, 155], mode="nearest-exact")
+        mask = mask[0, 0].type(torch.bool)
         if self.hist == True:
             img = np.stack([x for x in images])
             img = hist_norm(img)
@@ -195,12 +230,12 @@ class MRIDataVolume(Dataset):
             img = normalize_volume(img.float())
 
         volume = torch.zeros(
-            img.shape[0], self.image_size, self.image_size,mask.shape[2]
+            img.shape[0], self.image_size, self.image_size, mask.shape[2]
         )
         my_transform = transforms.Resize(self.image_size, antialias=True)
         for i in range(mask.shape[2]):
             volume[:, :, :, i] = my_transform(img[None, :, :, :, i])
-            
+
         return volume, mask
 
 
@@ -271,14 +306,16 @@ def Brats21(args, preload=False, eval=False, hist=False):
             df, my_transforms, args.dataset_path, args.image_size, hist=hist
         )
         dataloader = DataLoader(
-            dataset, batch_size=args.batch_size, num_workers=4, shuffle=False
+            dataset, batch_size=args.batch_size, num_workers=4, shuffle=True
         )
     return dataloader
 
 
 def MRI_Volume(args, hist=False, shift=False):
     df = pd.read_csv(args.path_to_csv)
-    dataset = MRIDataVolume(df, args.dataset_path, args.image_size, hist=hist, shift=shift)
+    dataset = MRIDataVolume(
+        df, args.dataset_path, args.image_size, hist=hist, shift=shift
+    )
     dataloader = DataLoader(
         dataset, batch_size=args.batch_size, num_workers=1, shuffle=False
     )
@@ -318,6 +355,7 @@ def dice_stitch(pred, target):
     dice = (2 * intersection) / (pred_sum + target_sum)
     return dice
 
+
 def dice(pred, truth):
     num = 2 * ((pred * truth).sum(dim=(1, 2, 3)).type(torch.float))
     den = (pred.sum(dim=(1, 2, 3)) + truth.sum(dim=(1, 2, 3))).type(torch.float)
@@ -356,7 +394,6 @@ def pyramid_noise_like(n, channels, device, image_size=128, discount=0.8):
     return noise / noise.std()  # Scaled back to roughly unit variance
 
 
-
 def median_filter_2D(volume, kernelsize=5):
     volume = volume.cpu().numpy()
     pbar = tqdm(range(len(volume)), desc="Median filtering")
@@ -386,12 +423,14 @@ def connected_components_3d(volume):
                 volume[i, cc_volume == prop["label"]] = 0
     return torch.Tensor(volume)
 
+
 def my_dilation(volume, kernelsize=3):
     volume = volume.cpu().numpy()
     pbar = tqdm(range(len(volume)), desc="Grey Dilation")
     for i in pbar:
         volume[i] = grey_dilation(volume[i], size=(kernelsize, kernelsize, kernelsize))
     return torch.Tensor(volume)
+
 
 def bin_dilation(volume, structure):
     volume = volume.cpu().numpy()
@@ -400,6 +439,7 @@ def bin_dilation(volume, structure):
         volume[i] = binary_dilation(volume[i], structure=structure)
     return torch.Tensor(volume)
 
+
 def norm_tensor(tensor):
     my_max = torch.max(tensor)
     my_min = torch.min(tensor)
@@ -407,7 +447,7 @@ def norm_tensor(tensor):
     return my_tensor
 
 
-def gmean(input_x, dim, keepdim = False):
+def gmean(input_x, dim, keepdim=False):
     log_x = torch.log(input_x)
     return torch.exp(torch.mean(log_x, dim=dim, keepdim=keepdim))
 
