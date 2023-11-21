@@ -32,8 +32,10 @@ class Diffusion:
             :, None, None, None
         ]
         if simplex == True:
-            slice_t = self.sample_timesteps(x.shape[0])
-            noise = baselines.simplex_noise.generate_simplex_noise(x,slice_t,in_channels=x.shape[1])
+            tmp = torch.randn((1, x.shape[0] * x.shape[1], self.img_size, self.img_size)).to(self.device)
+            slice_t = (torch.arange(1)  + 10).long()
+            noise = baselines.simplex_noise.generate_simplex_noise(tmp,slice_t,in_channels=tmp.shape[1])
+            noise = noise.view(x.shape[0], noise.shape[1]//x.shape[0], noise.shape[2], noise.shape[3])
         elif pyramid == True:
             noise = pyramid_noise_like(x.shape[0], x.shape[1], x.device)
         else:
@@ -77,10 +79,10 @@ class Diffusion:
         model.eval()
         with torch.no_grad():
             if simplex == True:
-                tmp = torch.randn((n, channels, self.img_size, self.img_size)).to(
-                    self.device)
-                slice_t = self.sample_timesteps(n)
+                tmp = torch.randn((1, n * channels, self.img_size, self.img_size)).to(self.device)
+                slice_t = (torch.arange(1)  + 10).long()
                 x = baselines.simplex_noise.generate_simplex_noise(tmp,slice_t,in_channels=tmp.shape[1])
+                x = x.view(n, x.shape[1]//n, x.shape[2], x.shape[3])
             elif pyramid == True:
                 x = pyramid_noise_like(n, channels, self.device)
             else:
@@ -100,8 +102,10 @@ class Diffusion:
                 alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
                 if i > 1:
                     if simplex == True:
-                        slice_t = self.sample_timesteps(n)
-                        noise = baselines.simplex_noise.generate_simplex_noise(x,slice_t,in_channels=x.shape[1])
+                        tmp = torch.randn((1, n * channels, self.img_size, self.img_size)).to(self.device)
+                        slice_t = (torch.arange(1)  + 10).long()
+                        noise = baselines.simplex_noise.generate_simplex_noise(tmp,slice_t,in_channels=tmp.shape[1])
+                        noise = noise.view(n, noise.shape[1]//n, noise.shape[2], noise.shape[3])
                     elif pyramid == True:
                         noise = pyramid_noise_like(n, channels, self.device)
                     else:
@@ -385,8 +389,10 @@ class Diffusion:
                 alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
                 if i > 1:
                     if simplex == True:
-                        slice_t = self.sample_timesteps(x.shape[0])
-                        noise = baselines.simplex_noise.generate_simplex_noise(x,slice_t,in_channels=x.shape[1])
+                        tmp = torch.randn((1, x.shape[0] * x.shape[1], self.img_size, self.img_size)).to(self.device)
+                        slice_t = (torch.arange(1)  + 10).long()
+                        noise = baselines.simplex_noise.generate_simplex_noise(tmp,slice_t,in_channels=tmp.shape[1])
+                        noise = noise.view(x.shape[0], noise.shape[1]//x.shape[0], noise.shape[2], noise.shape[3])
                     elif pyramid == True:
                         noise = pyramid_noise_like(x.shape[0], x.shape[1], self.device)
                     else:
