@@ -32,10 +32,10 @@ class Diffusion:
             :, None, None, None
         ]
         if simplex == True:
-            tmp = torch.randn((1, x.shape[0] * x.shape[1], self.img_size, self.img_size)).to(self.device)
-            slice_t = (torch.arange(1)  + 10).long()
+            slice_t = (torch.arange(1) + 10).long()
+            tmp = torch.randn((1, x.shape[0] * x.shape[1], self.img_size, self.img_size))
             noise = baselines.simplex_noise.generate_simplex_noise(tmp,slice_t,in_channels=tmp.shape[1])
-            noise = noise.view(x.shape[0], noise.shape[1]//x.shape[0], noise.shape[2], noise.shape[3])
+            noise = noise.view(x.shape[0],x.shape[1],self.img_size,self.img_size).to(self.device)
         elif pyramid == True:
             noise = pyramid_noise_like(x.shape[0], x.shape[1], x.device)
         else:
@@ -381,6 +381,10 @@ class Diffusion:
         with torch.no_grad():
             t = (torch.ones(num_images) * num_steps).long().to(self.device)
             x, noise = self.noise_images(images, t,simplex=simplex,pyramid=pyramid)
+            slice_t = (torch.arange(1) + 10).long()
+            complete_noise = torch.randn((1, t[0] * x.shape[1], self.img_size, self.img_size))
+            complete_noise = baselines.simplex_noise.generate_simplex_noise(complete_noise,slice_t,in_channels=complete_noise.shape[1])
+            complete_noise = complete_noise.view(t[0],x.shape[1],self.img_size,self.img_size)
             for i in tqdm(reversed(range(1, num_steps)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 predicted_noise = model(x, t)
@@ -389,10 +393,8 @@ class Diffusion:
                 alpha_hat_minus_one = self.alpha_hat[t - 1][:, None, None, None]
                 if i > 1:
                     if simplex == True:
-                        tmp = torch.randn((1, x.shape[0] * x.shape[1], self.img_size, self.img_size)).to(self.device)
-                        slice_t = (torch.arange(1)  + 10).long()
-                        noise = baselines.simplex_noise.generate_simplex_noise(tmp,slice_t,in_channels=tmp.shape[1])
-                        noise = noise.view(x.shape[0], noise.shape[1]//x.shape[0], noise.shape[2], noise.shape[3])
+                        noise = complete_noise[None,i].repeat(x.shape[0],1,1,1)
+                        noise = random_transform_vectorized(noise).to(self.device)
                     elif pyramid == True:
                         noise = pyramid_noise_like(x.shape[0], x.shape[1], self.device)
                     else:

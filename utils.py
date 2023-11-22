@@ -24,6 +24,7 @@ from scipy.ndimage import binary_dilation
 from scipy.signal import medfilt2d
 from skimage.measure import label, regionprops
 from torch.nn import functional as F
+import torchvision.transforms.functional as tf
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm import tqdm
@@ -393,6 +394,30 @@ def pyramid_noise_like(n, channels, device, image_size=128, discount=0.8):
             break  # Lowest resolution is 1x1
     return noise / noise.std()  # Scaled back to roughly unit variance
 
+
+def random_transform_vectorized(tensor):
+    # Random rotations (0, 90, 180, 270 degrees) for the entire batch
+    angles = torch.randint(0, 24, (tensor.size(0),)) * 15
+    sliced_tensor = torch.stack(
+        [
+            tf.rotate(tensor[i, :, :, :], angles[i].item())
+            for i in range(tensor.size(0))
+        ]
+    )
+
+    # Random horizontal flip for the entire batch
+    flip_h = torch.rand(sliced_tensor.size(0)) < 0.5
+    for i in range(sliced_tensor.size(0)):
+        if flip_h[i]:
+            sliced_tensor[i, :, :, :] = tf.hflip(sliced_tensor[i, :, :, :])
+
+    # Random vertical flip for the entire batch
+    flip_v = torch.rand(sliced_tensor.size(0)) < 0.5
+    for i in range(sliced_tensor.size(0)):
+        if flip_v[i]:
+            sliced_tensor[i, :, :, :] = tf.vflip(sliced_tensor[i, :, :, :])
+
+    return sliced_tensor
 
 def median_filter_2D(volume, kernelsize=5):
     volume = volume.cpu().numpy()
