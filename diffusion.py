@@ -381,10 +381,11 @@ class Diffusion:
         with torch.no_grad():
             t = (torch.ones(num_images) * num_steps).long().to(self.device)
             x, noise = self.noise_images(images, t,simplex=simplex,pyramid=pyramid)
-            slice_t = (torch.arange(1) + 10).long()
-            complete_noise = torch.randn((1, t[0] * x.shape[1], self.img_size, self.img_size))
-            complete_noise = baselines.simplex_noise.generate_simplex_noise(complete_noise,slice_t,in_channels=complete_noise.shape[1])
-            complete_noise = complete_noise.view(t[0],x.shape[1],self.img_size,self.img_size)
+            if simplex == True:
+                slice_t = (torch.arange(1) + 10).long()
+                complete_noise = torch.randn((1, t[0] * x.shape[1], self.img_size, self.img_size))
+                complete_noise = baselines.simplex_noise.generate_simplex_noise(complete_noise,slice_t,in_channels=complete_noise.shape[1])
+                complete_noise = complete_noise.view(t[0],x.shape[1],self.img_size,self.img_size).to(self.device)
             for i in tqdm(reversed(range(1, num_steps)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
                 predicted_noise = model(x, t)
@@ -394,7 +395,7 @@ class Diffusion:
                 if i > 1:
                     if simplex == True:
                         noise = complete_noise[None,i].repeat(x.shape[0],1,1,1)
-                        noise = random_transform_vectorized(noise).to(self.device)
+                        noise = random_transform_vectorized(noise)
                     elif pyramid == True:
                         noise = pyramid_noise_like(x.shape[0], x.shape[1], self.device)
                     else:
