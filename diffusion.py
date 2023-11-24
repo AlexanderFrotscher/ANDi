@@ -205,7 +205,7 @@ class Diffusion:
                 zs[:, i - 1] = z_t
         return zs
 
-    def dpm_differences(self, model, images, start=100, stop=None, pyramid=False):
+    def dpm_differences(self, model, images, start=75, stop=None, pyramid=False):
         if stop == None:
             stop = self.noise_steps
         if start == 0:
@@ -213,16 +213,6 @@ class Diffusion:
         num_images = images.shape[0]
         model.eval()
         with torch.no_grad():
-            # First, sample from the forward process
-            xts = torch.zeros(
-                (
-                    num_images,
-                    stop - start,
-                    images.shape[1],
-                    images.shape[2],
-                    images.shape[3],
-                )
-            ).to(self.device)
             zs = torch.zeros(
                 (
                     num_images,
@@ -232,15 +222,11 @@ class Diffusion:
                     images.shape[3],
                 )
             ).to(self.device)
-            for i in tqdm(reversed(range(start, stop)), position=0):
-                t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t, noise = self.noise_images(images, t, pyramid=pyramid)
-                xts[:, i - start] = x_t
-
+        
             # calculate the differences
             for i in tqdm(reversed(range(start, stop)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t = xts[:, i - start]
+                x_t, noise = self.noise_images(images, t, pyramid=pyramid)
                 predicted_noise = model(x_t, t)
                 mu_t = self.ddpm_mu_t(x_t, predicted_noise, t)
                 mean = self.ddpm_mean_t(x_t, t, x_0=images)
