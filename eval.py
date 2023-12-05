@@ -17,7 +17,7 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val.csv"
     #args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
     #args.dataset_path = "/mnt/qb/baumgartner/rawdata/shifts_registered/patients"
     #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_out.csv"
@@ -38,7 +38,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.10, 0.001)]
+    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.1, 0.001)]
     dice_scores_mask = {i: [] for i in threshold_test}
     dice_scores_mask_median = {i: [] for i in threshold_test}
     my_auprs = {i: [] for i in ["aupr no median", "aupr"]}
@@ -67,7 +67,7 @@ def main():
         )
         for i, (image, label) in enumerate(pbar):
             image = (image * 2) - 1
-            num_steps = 200
+            num_steps = 550
             size_splits = 50
             num_volumes = image.shape[0]
             num_slices = image.shape[4]
@@ -77,7 +77,7 @@ def main():
             split = torch.split(image, size_splits)
             zs_list = []
             for my_tensor in split:
-                zs = diffusion.dpm_differences(model, my_tensor, start=75, stop=num_steps, pyramid=False).to('cpu')
+                zs = diffusion.dpm_differences(model, my_tensor, start=100, stop=num_steps, pyramid=False).to('cpu')
                 # zs = diffusion.skip_differences(model, my_tensor, start = 100, stop = num_steps, skip=25, pyramid=False).to('cpu')
                 # zs = diffusion.differences_noise(model, my_tensor, start = 100, stop = num_steps, pyramid=False).to('cpu')
                 zs_list.append(zs)
@@ -104,6 +104,7 @@ def main():
                 my_labels = my_labels[1:]
                 my_volume = my_volume[1:]
             my_mask = torch.max(my_volume, dim=1)[0]
+            #my_mask = torch.mean(my_volume,dim=1)
             mask_median = torch.clone(my_mask)
             mask_median = median_filter_3D(mask_median, kernelsize=5)
             my_labels = my_labels.contiguous()

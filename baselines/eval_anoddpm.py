@@ -23,9 +23,9 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     #args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val_small.csv"
+    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_val.csv"
     args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_out.csv"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_in.csv"
     args.batch_size = 1
     args.image_size = 128
 
@@ -43,7 +43,7 @@ def main():
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.1, 0.001)]
+    threshold_test = [round(x, 3) for x in np.arange(0.01, 0.2, 0.001)]
     dice_scores_mask = {i: [] for i in threshold_test}
     dice_scores_mask_median = {i: [] for i in threshold_test}
     my_auprs = {i: [] for i in ["aupr no median", "aupr"]}
@@ -73,7 +73,7 @@ def main():
         for i, (image, label) in enumerate(pbar):
             image = (image * 2) - 1
             num_steps = 250
-            size_splits = 50
+            size_splits = 155
             num_volumes = image.shape[0]
             num_slices = image.shape[4]
 
@@ -106,7 +106,7 @@ def main():
                 my_volume = my_volume[1:]
             my_mask = torch.max(my_volume, dim=1)[0]
             mask_median = torch.clone(my_mask)
-            mask_median = median_filter_3D(mask_median, kernelsize=3)
+            mask_median = median_filter_3D(mask_median, kernelsize=5)
             my_labels = my_labels.contiguous()
             my_mask = norm_tensor(my_mask)
             mask_median = norm_tensor(mask_median)

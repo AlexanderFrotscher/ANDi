@@ -21,11 +21,11 @@ def main():
     torch.manual_seed(73)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
-    #args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
+    #args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
+    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
+    args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
     #args.dataset_path = "/mnt/qb/baumgartner/rawdata/shifts_registered/patients"
-    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_out.csv"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_in.csv"
     args.image_size = 128
     device = "cpu"
 
@@ -33,7 +33,7 @@ def main():
     len_df = len(len_df)
     args.batch_size = len_df
 
-    dataloader = MRI_Volume(args, hist=True, shift=False)
+    dataloader = MRI_Volume(args, hist=True, shift=True)
     pbar = tqdm(dataloader)
     threshold_test = [round(x, 3) for x in np.arange(0.85, 1, 0.001)]
     dice_scores_mask = {i: [] for i in threshold_test}

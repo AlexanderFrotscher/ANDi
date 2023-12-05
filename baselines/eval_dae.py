@@ -24,10 +24,10 @@ def main():
     torch.manual_seed(73)
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
-    #args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
-    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_out.csv"
+    #args.dataset_path = "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
+    #args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_test.csv"
+    args.dataset_path = "/mnt/qb/work/baumgartner/bkc035/shifts_data/patients"
+    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/shifts_out.csv"
     args.batch_size = 1
     args.image_size = 128
     args.channels = 4
@@ -39,11 +39,11 @@ def main():
         "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data/models/DAE/2_ckpt.pt"
     )
     model.load_state_dict(ckpt)
-    dataloader = MRI_Volume(args, hist=False,shift=False)
+    dataloader = MRI_Volume(args, hist=False,shift=True)
 
     model, dataloader = accelerator.prepare(model, dataloader)
     pbar = tqdm(dataloader)
-    threshold_diff = [x / 1000 for x in range(50, 200)]
+    threshold_diff = [x / 1000 for x in range(200, 330)]
     dice_scores_mask = {i: [] for i in threshold_diff}
     dice_scores_mask_median = {i: [] for i in threshold_diff}
     my_auprs = {i: [] for i in ["aupr no median", "aupr"]}
@@ -112,7 +112,7 @@ def main():
             #my_mask = torch.max(my_volume, dim=1)[0]
             my_mask = torch.mean(my_volume,dim=1)
             mask_median = torch.clone(my_mask)
-            mask_median = median_filter_3D(mask_median, kernelsize=5)
+            mask_median = median_filter_3D(mask_median, kernelsize=3)
             my_labels = my_labels.contiguous()
             my_mask = norm_tensor(my_mask)
             mask_median = norm_tensor(mask_median)
