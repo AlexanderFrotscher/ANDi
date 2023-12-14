@@ -3,8 +3,8 @@
 #
 # Eval Hyperparameters
 #
-dataset_path : "./data/BraTS21/BraTS21_val"
-path_to_csv : "./data/BraTS21/scans_myimage.csv"
+dataset_path : "./data/BraTS21/"
+path_to_csv : "./splits/BraTS21/scans_test.csv"
 batch_size : 1  # number of volumes load into the gpu
 size_splits: 155  # number of slices processed in gpu for each volume at the same time
 workers : 2  # cpu data loaders
@@ -38,7 +38,7 @@ max: True  # False causes the usage of the mean
 #
 # Model Hyperparameters
 #
-model : ./models/DAE/2_ckpt.pt
+model : 
 size : 128
 channels : 4
 depth: 4

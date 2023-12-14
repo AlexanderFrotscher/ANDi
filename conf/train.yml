@@ -3,7 +3,7 @@
 #
 # Train Hyperparameters
 #
-run_name : DDPM-train
+run_name : DDPM-Pyramid
 epochs : 233
 batch_size : 128
 dataset_path : "./data/BraTS21/"
@@ -52,6 +52,6 @@ beta_end: 0.02
 #
 # Noise type
 #
-pyramid : False
+pyramid : True
 simplex : False
 discount : 0.8  #only needed for pyramid noise

@@ -3,8 +3,8 @@
 #
 # Eval Hyperparameters
 #
-dataset_path : "./data/BraTS21/BraTS21_val"
-path_to_csv : "./data/BraTS21/scans_myimage.csv"
+dataset_path : "./data/BraTS21/"
+path_to_csv : "./splits/BraTS21/scans_test.csv"
 workers : 2  # cpu data loaders
 seed : 73
 output : "./results/thresholding.csv"
