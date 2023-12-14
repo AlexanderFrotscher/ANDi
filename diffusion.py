@@ -24,7 +24,7 @@ class Diffusion:
     def linear_noise_schedule(self, beta_start, beta_end):
         return torch.linspace(beta_start, beta_end, self.noise_steps)
 
-    def noise_images(self, x, t, pyramid=False, simplex=False):
+    def noise_images(self, x, t, pyramid=False, simplex=False, discount = 0.8):
         """This method generates the latent representations at time t of the input images. Equation (1) in ANDi paper
 
         Parameters
@@ -37,6 +37,8 @@ class Diffusion:
             flag that decides if pyramid noise is used, by default False
         simplex : bool, optional
             flag that decides if simplex noise is used, by default False
+        discount : float, optional
+            the discount for the pyramid noise, by default 0.8
 
         Returns
         -------
@@ -59,7 +61,7 @@ class Diffusion:
                 self.device
             )
         elif pyramid == True:
-            noise = pyramid_noise_like(x.shape[0], x.shape[1], x.device)
+            noise = pyramid_noise_like(x.shape[0], x.shape[1], self.img_size, discount, x.device)
         else:
             noise = torch.randn_like(x)
         return sqrt_alpha_hat * x + sqrt_one_minus_alpha_hat * noise, noise
@@ -131,7 +133,7 @@ class Diffusion:
         return w0 * x_0 + wt * x
 
     def sample(
-        self, model, n, channels, pyramid=False, simplex=False
+        self, model, n, channels, pyramid=False, simplex=False, discount = 0.8
     ):
         """This method samples from the learned DDPM.
 
@@ -147,6 +149,8 @@ class Diffusion:
             flag that decides if pyramid noise is used, by default False
         simplex : bool, optional
             flag that decides if simplex noise is used, by default False
+        discount : float, optional
+            the discount for the pyramid noise, by default 0.8
 
         Returns
         -------
@@ -163,9 +167,9 @@ class Diffusion:
                 x = baselines.simplex_noise.generate_simplex_noise(
                     tmp, slice_t, in_channels=tmp.shape[1]
                 )
-                x = x.view(n, x.shape[1] // n, x.shape[2], x.shape[3])
+                x = x.view(n, x.shape[1] // n, self.img_size, self.img_size)
             elif pyramid == True:
-                x = pyramid_noise_like(n, channels, self.device)
+                x = pyramid_noise_like(n, channels, self.img_size, discount, x.device)
             else:
                 x = torch.randn((n, channels, self.img_size, self.img_size)).to(
                     self.device
@@ -189,19 +193,19 @@ class Diffusion:
                             n, noise.shape[1] // n, noise.shape[2], noise.shape[3]
                         )
                     elif pyramid == True:
-                        noise = pyramid_noise_like(n, channels, self.device)
+                        noise = pyramid_noise_like(n, channels, self.img_size, discount, x.device)
                     else:
                         noise = torch.randn_like(x)
                 else:
                     noise = torch.zeros_like(x)
                 var = beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
-                x = self.ddpm_mean_t(x, t, predicted_noise) + torch.sqrt(var) * noise
+                x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(var) * noise
         model.train()
         x = (x.clamp(-1, 1) + 1) / 2
         x = (x * 255).type(torch.uint8)
         return x
 
-    def normative_diffusion(self, model, images, start=75, stop=200, pyramid=False):
+    def normative_diffusion(self, model, images, start=75, stop=200, pyramid=False, discount = 0.8):
         """This method calculates the deviations for each time step t in the interval T_l, T_u.
         In the ANDi paper this method corresponds to line 3 to 9 in the pseudo-code.
 
@@ -217,6 +221,8 @@ class Diffusion:
             Upper endpoint of interval T_u, by default 200
         pyramid : bool, optional
             flag that decides if pyramid noise is used, by default False
+        discount : float, optional
+            the discount for the pyramid noise, by default 0.8
 
         Returns
         -------
@@ -243,7 +249,7 @@ class Diffusion:
             # calculate the deviations
             for i in tqdm(reversed(range(start, stop)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t, noise = self.noise_images(images, t, pyramid=pyramid)
+                x_t, noise = self.noise_images(images, t, pyramid=pyramid, discount=discount)
                 predicted_noise = model(x_t, t)
                 mu_theta = self.ddpm_mu_t(x_t, predicted_noise, t)
                 mu_q = self.ddpm_mu_t(x_t, noise, t)
@@ -252,7 +258,7 @@ class Diffusion:
         return dts
 
     def normative_blocks(
-        self, model, images, start=75, stop=200, skip=25, pyramid=False
+        self, model, images, start=75, stop=200, skip=25, pyramid=False, discount = 0.8
     ):
         """Experimental method. Not described in ANDi paper.
         It calculates deviations for blocks of the diffusion markov chain with setting the variance to zero.
@@ -271,6 +277,8 @@ class Diffusion:
             The number of deviations to skip before calculating the deviation for a block, by default 25
         pyramid : bool, optional
             flag that decides if pyramid noise is used, by default False
+        discount : float, optional
+            the discount for the pyramid noise, by default 0.8
 
         Returns
         -------
@@ -295,7 +303,7 @@ class Diffusion:
             ).to(self.device)
 
             t = (torch.ones(num_images) * stop - 1).long().to(self.device)
-            x_t, noise = self.noise_images(images, t, pyramid=pyramid)
+            x_t, noise = self.noise_images(images, t, pyramid=pyramid, discount = discount)
             correct_chain = x_t
             predicted_chain = x_t
 
@@ -308,12 +316,12 @@ class Diffusion:
                     d_t = (correct_chain - predicted_chain) ** 2
                     dts[:, int((i - start) / skip)] = d_t
                     t = (torch.ones(num_images) * i - 1).long().to(self.device)
-                    x_t, noise = self.noise_images(images, t, pyramid=pyramid)
+                    x_t, noise = self.noise_images(images, t, pyramid=pyramid, discount=discount)
                     predicted_chain = x_t
                     correct_chain = x_t
         return dts
 
-    def deviations_noise(self, model, images, start=75, stop=200, pyramid=False):
+    def deviations_noise(self, model, images, start=75, stop=200, pyramid=False, discount = 0.8):
         """This method calculates the deviations for each time step t in the interval T_l, T_u on the noise level.
         This provides similar results.
 
@@ -329,6 +337,8 @@ class Diffusion:
             Upper endpoint of interval T_u, by default 200
         pyramid : bool, optional
             flag that decides if pyramid noise is used, by default False
+        discount : float, optional
+            the discount for the pyramid noise, by default 0.8
 
         Returns
         -------
@@ -354,13 +364,13 @@ class Diffusion:
 
             for i in tqdm(reversed(range(start, stop)), position=0):
                 t = (torch.ones(num_images) * i).long().to(self.device)
-                x_t, noise = self.noise_images(images, t, pyramid=pyramid)
+                x_t, noise = self.noise_images(images, t, pyramid=pyramid, discount=discount)
                 predicted_noise = model(x_t, t)
                 d_t = (predicted_noise - noise) ** 2
                 dts[:, i - start] = d_t
         return dts
 
-    def ano_ddpm(self, model, images, num_steps, simplex=False, pyramid=False):
+    def ano_ddpm(self, model, images, num_steps, simplex=False, pyramid=False, discount = 0.8):
         """This method implements the lesion localization from the AnoDDPM paper.
         It is faster than the original implementation for the simplex noise by creating dependent noise along the batch dimension.
 
@@ -376,6 +386,8 @@ class Diffusion:
             flag that decides if simplex noise is used, by default False
         pyramid : bool, optional
             flag that decides if pyramid noise is used, by default False
+        discount : float, optional
+            the discount for the pyramid noise, by default 0.8
 
         Returns
         -------
@@ -386,7 +398,7 @@ class Diffusion:
         num_images = images.shape[0]
         with torch.no_grad():
             t = (torch.ones(num_images) * num_steps).long().to(self.device)
-            x, noise = self.noise_images(images, t, simplex=simplex, pyramid=pyramid)
+            x, noise = self.noise_images(images, t, simplex=simplex, pyramid=pyramid, discount=discount)
             if simplex == True:
                 slice_t = (torch.arange(1) + 10).long()
                 complete_noise = torch.randn(
@@ -409,11 +421,11 @@ class Diffusion:
                         noise = complete_noise[None, i].repeat(x.shape[0], 1, 1, 1)
                         noise = random_transform_vectorized(noise)
                     elif pyramid == True:
-                        noise = pyramid_noise_like(x.shape[0], x.shape[1], self.device)
+                        noise = pyramid_noise_like(x.shape[0], x.shape[1], self.img_size, discount, x.device)
                     else:
                         noise = torch.randn_like(x)
                 else:
                     noise = torch.zeros_like(x)
                 var = beta * (1 - alpha_hat_minus_one) / (1 - alpha_hat)
-                x = self.ddpm_mu_t(x, predicted_noise, t) + torch.sqrt(var) * noise
+                x = self.ddpm_mean_t(x, t, predicted_noise) + torch.sqrt(var) * noise
         return x

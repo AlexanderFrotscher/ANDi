@@ -1,26 +1,36 @@
-### conf/train.yaml
+### conf/train.yml
 
 #
 # Train Hyperparameters
 #
-run_name : Hydra_test
-epochs : 1
-batch_size : 1
-dataset_path : "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
+run_name : DDPM-train
+epochs : 233
+batch_size : 128
+dataset_path : "./data/BraTS21/"
+path_to_csv : "./splits/BraTS21/scans_train.csv"
+workers : 4  # cpu data loaders
 start_lr : 2.0e-5
 target_lr : 1.0e-4
 warmup_steps: 0.05
 ema_decay: 0.995
 
+
+horizontal_flip:  # leave empty if not needed
+
+
+# preload the data set? If no, the csv needs to contain the healthy slices
+preload: True
+
+
+# The checkpoints need to be given when continuing the training
 train_continue : False
 model : 
 ema_model :
 opt :
 
-path_to_csv : 
-start_ckpt : 50
-save_ckpt : 4
-num_images : 1
+start_ckpt : 120  # first checkpoint that is safed, integer equals number of epochs
+save_ckpt : 4  # number of epochs between each checkpoint
+num_images : 3  # number of sampled images during training
 
 
 
@@ -34,7 +44,7 @@ channels : 4
 #
 # Diffusion Hyperparameters
 #
-length: 1000
+noise_steps: 1000
 beta_start: 1.0e-4
 beta_end: 0.02
 
@@ -44,3 +54,4 @@ beta_end: 0.02
 #
 pyramid : False
 simplex : False
+discount : 0.8  #only needed for pyramid noise

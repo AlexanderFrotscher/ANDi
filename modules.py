@@ -52,9 +52,23 @@ class EMA:
 
 class LRWarmupCosineDecay(LambdaLR):
     """Linear warmup and then cosine decay.
-    Linearly increases the factor the learning rate is multiplied with from start_lr to target_lr over the specified number of steps
-    Decreases this factor from target_lr to start_lr over remaining steps. Set lr in optimizer to 1 to ensure that this factor equals the lr.
+      Linearly increases the factor the learning rate is multiplied with from start_lr
+      to target_lr over the specified number of steps
+      Decreases this factor from target_lr to start_lr over remaining steps.
+      Set lr in optimizer to 1 to ensure that this factor equals the lr.
+
+    Parameters
+    ----------
+    LambdaLR : _type_
+        PyTorch Class
+
+    Returns
+    -------
+    _type_
+        lr
     """
+    
+    
 
     def __init__(
         self, optimizer, warmup_steps, steps_total, start_lr, target_lr, last_epoch=-1

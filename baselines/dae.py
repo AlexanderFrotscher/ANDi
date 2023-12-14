@@ -1,15 +1,15 @@
 __author__ = "Alexander Frotscher"
 __email__ = "alexander.frotscher@student.uni-tuebingen.de"
 
-import argparse
-import logging
 import os.path
 import sys
 
 sys.path.append(
     os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
 )
+import logging
 
+import yaml
 from accelerate import Accelerator
 from dae_unet import *
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -24,37 +24,47 @@ def loss_f(y, predictions, mask):
     return (torch.pow(predictions - y, 2) * mask.float()).mean()
 
 
-def train(args):
-    torch.manual_seed(0)
-    make_dicts(args.run_name)
+def train(conf):
+    make_dicts(conf["run_name"])
     accelerator = Accelerator()
     device = accelerator.device
-    dataloader = Brats21(args, preload=True)
-    model = UNet(args.channels, args.channels, depth=4, wf=6, padding=True).to(device)
+    dataloader = Brats21(conf)
+    model = UNet(
+        conf["channels"],
+        conf["channels"],
+        conf["depth"],
+        conf["wf"],
+        padding=conf["padding"],
+    ).to(device)
     optimizer = torch.optim.Adam(
-        model.parameters(), lr=args.lr, amsgrad=True, weight_decay=0.00001
+        model.parameters(),
+        lr=conf["lr"],
+        amsgrad=conf["amsgrad"],
+        weight_decay=conf["weight_decay"],
     )
 
-    if args.train_continue == True:
-        ckpt = torch.load(args.current_model)
+    if conf["train_continue"] == True:
+        ckpt = torch.load(conf["model"])
         model.load_state_dict(ckpt)
-        ckpt = torch.load(args.current_opt)
+        ckpt = torch.load(conf["opt"])
         optimizer.load_state_dict(ckpt)
 
-    lr_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=100)
+    lr_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=conf["T_max"])
     model, optimizer, lr_scheduler, dataloader = accelerator.prepare(
         model, optimizer, lr_scheduler, dataloader
     )
 
-    for epoch in range(args.epochs):
+    for epoch in range(conf["epochs"]):
         logging.info(f"Starting epoch {epoch}:")
-        pbar = tqdm(dataloader)
+        pbar = tqdm(dataloader) if accelerator.is_main_process else dataloader
         for i, (images) in enumerate(pbar):
             mask = images.sum(dim=1, keepdim=True) > 0.01
             my_noise = coarse_noise(
                 images.shape[0],
                 images.shape[1],
                 images.device,
+                noise_size=conf["noise_size"],
+                noise_std=conf["noise_std"],
                 image_size=images.shape[2],
             )
             my_noise *= mask
@@ -69,44 +79,27 @@ def train(args):
             wandb.log({"loss": loss.item()})
 
         lr_scheduler.step()
-        if epoch % 2 == 0 and accelerator.is_main_process:
+        if epoch % conf["save_ckpt"] == 0 and accelerator.is_main_process:
             my_model = accelerator.unwrap_model(model)
             accelerator.save(
                 my_model.state_dict(),
-                os.path.join("models", args.run_name, f"{epoch}_ckpt.pt"),
+                os.path.join("models", conf["run_name"], f"{epoch}_ckpt.pt"),
             )
             accelerator.save(
                 optimizer.state_dict(),
-                os.path.join("models", args.run_name, f"{epoch}_optim.pt"),
+                os.path.join("models", conf["run_name"], f"{epoch}_optim.pt"),
             )
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    args = parser.parse_args()
-    args.run_name = "DAE"
-    args.epochs = 5
-    args.batch_size = 16
-    args.image_size = 128
-    args.channels = 4
-    args.dataset_path = (
-        "/mnt/qb/baumgartner/rawdata/BraTS2021_Training_Data"
-    )
-    args.lr = 0.0001
-    args.path_to_csv = "/mnt/qb/work/baumgartner/bkc035/scans_train.csv"
-    args.train_continue = True
-    args.current_model = (
-        "/mnt/qb/work/baumgartner/bkc035/normative-diffusion/baselines/models/DAE/14_ckpt.pt"
-    )
-    args.current_opt = (
-        "/mnt/qb/work/baumgartner/bkc035/normative-diffusion/baselines/models/DAE/14_optim.pt"
-    )
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )
-    wandb.init(entity="team-frotscher", project=args.run_name, config=args)
+    with open("./conf/train_dae.yml", "r") as file_object:
+        conf = yaml.load(file_object, Loader=yaml.SafeLoader)
 
-    train(args)
+        wandb.init(entity="team-frotscher", project=conf["run_name"], config=conf)
+        train(conf)
 
 
 if __name__ == "__main__":

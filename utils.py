@@ -32,7 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 def plot_images(images, mode="RGB"):
-    if mode == "L":
+    if mode == "L": # mode L is gray scale
         batch_size = images.shape[0]
         channels = images.shape[1]
         images = images.reshape(
@@ -67,7 +67,7 @@ def plot_images(images, mode="RGB"):
 
 
 def save_images(images, path, mode="RGB", **kwargs):
-    if mode == "L":  # mode L is greyscale
+    if mode == "L":  # mode L is gray scale
         batch_size = images.shape[0]
         channels = images.shape[1]
         images = images.reshape(
@@ -85,7 +85,21 @@ def save_images(images, path, mode="RGB", **kwargs):
 
 
 def upload_images(images, mode="RGB", **kwargs):
-    if mode == "L":
+    """Creates a numpy array to upload the images to wandb.
+
+    Parameters
+    ----------
+    images : tensor
+        The tensor containing the images
+    mode : str, optional
+        flag that decides if the images are meant to be RBG or gray scale, by default "RGB"
+
+    Returns
+    -------
+    numpy.array
+        The array that can be uploaded to wandb
+    """
+    if mode == "L": # mode L is gray scale
         batch_size = images.shape[0]
         channels = images.shape[1]
         images = images.reshape(
@@ -134,10 +148,15 @@ class SlicesDataset(Dataset):
 
 
 class BratsDataset(Dataset):
+    """The data set class to load individual slices from the files containing the volumes.
+    A .csv is requirred that specifies the slices to load from the volume. 
+
+    Parameters
+    ----------
+    Dataset : _type_
+        PyTorch class
     """
-    This class is based on https://www.kaggle.com/code/polomarco/brats20-3dunet-3dautoencoder and
-    loads individual slices that have to be given by a .csv file.
-    """
+
 
     def __init__(
         self,
@@ -158,7 +177,7 @@ class BratsDataset(Dataset):
         return self.df.shape[0]
 
     def __getitem__(self, idx):
-        id_ = self.df.loc[idx, "BraTS21ID"]
+        id_ = self.df.loc[idx, self.df.columns[0]]
         images = []
         slice = self.df.loc[idx, "Slice"]
         for data_type in self.data_types:
@@ -168,7 +187,7 @@ class BratsDataset(Dataset):
 
         mask_path = os.path.join(self.dataset_path, id_, id_ + "_seg.nii.gz")
         mask = np.asarray(nib.load(mask_path).dataobj[:, :, slice], dtype=int)
-        mask[mask >= 1] = 1  # mask contains the labels 1, 2, and 4
+        mask[mask >= 1] = 1  # mask contains the labels 1, 2, and 4 for BraTS
         mask = torch.from_numpy(mask)
         mask = mask[None, :, :]
         if self.hist == True:
@@ -185,6 +204,13 @@ class BratsDataset(Dataset):
 
 
 class MRIDataVolume(Dataset):
+    """The data set class to load and normalize complete volumes.
+
+    Parameters
+    ----------
+    Dataset : _type_
+        PyTorch class
+    """
     def __init__(
         self,
         df: pd.DataFrame,
@@ -205,10 +231,10 @@ class MRIDataVolume(Dataset):
 
     def __getitem__(self, idx):
         if self.shift == True:
-            id_ = self.df.loc[idx, "ShiftsID"]
+            id_ = self.df.loc[idx, self.df.columns[0]]
             patient_number = id_.split("_")[-1]
         else:
-            id_ = self.df.loc[idx, "BraTS21ID"]
+            id_ = self.df.loc[idx, self.df.columns[0]]
             patient_number = id_
         images = []
         for data_type in self.data_types:
@@ -218,7 +244,7 @@ class MRIDataVolume(Dataset):
 
         mask_path = os.path.join(self.dataset_path, id_, patient_number + "_seg.nii.gz")
         mask = np.asarray(nib.load(mask_path).dataobj, dtype=float)
-        mask[mask > 0.5] = 1
+        mask[mask > 0.5] = 1  # for data sets where the gt masks need to be registered a thr needs to be decided
         mask[mask < 1] = 0
         mask = torch.from_numpy(mask)
         mask = F.interpolate(mask[None, None], [128, 128, 155], mode="nearest-exact")
@@ -254,24 +280,24 @@ class preload_dataset(Dataset):
         return img
 
 
-def Brats21(args, preload=False, eval=False, hist=False):
-    if eval == True:
+def Brats21(conf, hist=False):
+    if conf['horizontal_flip'] != None:
         my_transforms = transforms.Compose(
             [
-                transforms.Resize(args.image_size, antialias=True),
+                transforms.Resize(conf['size'], antialias=True),
+                transforms.RandomHorizontalFlip(conf['horizontal_flip'])
             ]
         )
     else:
         my_transforms = transforms.Compose(
             [
-                transforms.Resize(args.image_size, antialias=True),
-                # transforms.RandomHorizontalFlip(0.4),
+                transforms.Resize(conf['size'], antialias=True),
             ]
         )
-    if preload == True:
-        df = pd.read_csv(args.path_to_csv)
-        root_path = args.dataset_path
-        ids = df.loc[:, "BraTS21ID"]
+    if conf['preload'] == True:
+        df = pd.read_csv(conf['path_to_csv'])
+        root_path = conf['dataset_path']
+        ids = df.loc[:, df.columns[0]]
         my_slices = []
         data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
         for id in ids:
@@ -279,7 +305,7 @@ def Brats21(args, preload=False, eval=False, hist=False):
             mask_path = os.path.join(root_path, id, id + "_seg.nii.gz")
             mask = np.asarray(nib.load(mask_path).dataobj, dtype=int)
             for data_type in data_types:
-                img_path = os.path.join(args.dataset_path, id, id + data_type)
+                img_path = os.path.join(conf['dataset_path'], id, id + data_type)
                 img = np.asarray(nib.load(img_path).dataobj, dtype=float)
                 images.append(img)
 
@@ -295,38 +321,46 @@ def Brats21(args, preload=False, eval=False, hist=False):
             for i in range(img.shape[3]):
                 my_slice = img[0, :, :, i]
                 my_mask = mask[:, :, i]
-                if torch.count_nonzero(my_slice) and 1 not in my_mask:
+                if torch.count_nonzero(my_slice) and 1 not in my_mask:  # filter out empty and slices containing an anomaly
                     my_slices.append(img[:, :, :, i])
         dataset = preload_dataset(my_slices, my_transforms)
         dataloader = DataLoader(
-            dataset, batch_size=args.batch_size, num_workers=4, shuffle=True
+            dataset, batch_size=conf['batch_size'], num_workers=conf['workers'], shuffle=True
         )
     else:
-        df = pd.read_csv(args.path_to_csv)
+        df = pd.read_csv(conf['path_to_csv'])
         dataset = BratsDataset(
-            df, my_transforms, args.dataset_path, args.image_size, hist=hist
+            df, my_transforms, conf['dataset_path'], conf['size'], hist=hist
         )
         dataloader = DataLoader(
-            dataset, batch_size=args.batch_size, num_workers=4, shuffle=True
+            dataset, batch_size=conf['batch_size'], num_workers=conf['workers'], shuffle=True
         )
     return dataloader
 
 
-def MRI_Volume(args, hist=False, shift=False):
-    df = pd.read_csv(args.path_to_csv)
+def MRI_Volume(conf, hist=False, shift=False):
+    df = pd.read_csv(conf['path_to_csv'])
     dataset = MRIDataVolume(
-        df, args.dataset_path, args.image_size, hist=hist, shift=shift
+        df, conf['dataset_path'], conf['size'], hist=hist, shift=shift
     )
     dataloader = DataLoader(
-        dataset, batch_size=args.batch_size, num_workers=1, shuffle=False
+        dataset, batch_size=conf['batch_size'], num_workers=conf['workers'], shuffle=False
     )
     return dataloader
 
 
 def normalize_volume(images):
-    """
-    This function is adapted from https://github.com/AntanasKascenas/DenoisingAE
-    Normalise the intensity values in each modality by scaling by 99 percentile foreground (nonzero) value.
+    """Normalise the intensity values in each modality by scaling by 99 percentile foreground (nonzero) value.
+
+    Parameters
+    ----------
+    images : tensor
+        Tensor containing the volumes
+
+    Returns
+    -------
+    tensor
+        The tensor containing the normalized volumes.
     """
     for modality in range(images.shape[0]):
         i_ = images[modality, :, :, :].reshape(-1)
@@ -338,6 +372,18 @@ def normalize_volume(images):
 
 
 def hist_norm(images):
+    """Applies histogram normalization to the volumes.
+
+    Parameters
+    ----------
+    images : tensor
+        Tensor containing the volumes
+
+    Returns
+    -------
+    tensor
+        The tensor with the histogram normalized.
+    """
     for modality in range(images.shape[0]):
         i_ = images[modality, :, :, :]
         mask = np.zeros_like(i_)
@@ -381,7 +427,7 @@ def coarse_noise(n, channels, device, noise_size=16, noise_std=0.2, image_size=1
     return noise
 
 
-def pyramid_noise_like(n, channels, device, image_size=128, discount=0.8):
+def pyramid_noise_like(n, channels, image_size, discount, device):
     u = transforms.Resize(image_size, antialias=True)
     noise = torch.randn((n, channels, image_size, image_size)).to(device)
     w = image_size
@@ -396,7 +442,7 @@ def pyramid_noise_like(n, channels, device, image_size=128, discount=0.8):
 
 
 def random_transform_vectorized(tensor):
-    # Random rotations (0, 90, 180, 270 degrees) for the entire batch
+    # Random rotations for the entire batch
     angles = torch.randint(0, 24, (tensor.size(0),)) * 15
     sliced_tensor = torch.stack(
         [
@@ -437,7 +483,6 @@ def median_filter_3D(volume, kernelsize=5):
 
 
 def connected_components_3d(volume):
-    # shape [b, d, h, w], treat every sample in batch independently
     volume = volume.cpu().numpy()
     pbar = tqdm(range(len(volume)), desc="Connected components")
     for i in pbar:
@@ -449,9 +494,9 @@ def connected_components_3d(volume):
     return torch.Tensor(volume)
 
 
-def my_dilation(volume, kernelsize=3):
+def gray_dilation(volume, kernelsize=3):
     volume = volume.cpu().numpy()
-    pbar = tqdm(range(len(volume)), desc="Grey Dilation")
+    pbar = tqdm(range(len(volume)), desc="Gray Dilation")
     for i in pbar:
         volume[i] = grey_dilation(volume[i], size=(kernelsize, kernelsize, kernelsize))
     return torch.Tensor(volume)
