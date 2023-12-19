@@ -114,16 +114,20 @@ def upload_images(images, mode="RGB", **kwargs):
 
 
 class SlicesDataset(Dataset):
-    """
-    To load slices saved as numpy files (4, 128, 128) in a directory.
-    These numpy files are created by the resize_slices.py script,
-    which resizes the slices created by split_healthy.py to 128x128.
+    """To load slices saved as numpy files (4, 128, 128) in a directory.
+    These numpy files are created by the split_healthy.py script.
     These are all preprocessed slices, i.e. they are normalized.
+
+    Parameters
+    ----------
+    Dataset : _type_
+        PyTorch class
     """
 
-    def __init__(self, directory, preload=False):
+    def __init__(self, directory, preload=False, workers = 4):
         super().__init__()
         self.preload = preload
+        self.workers = workers
         self.file_paths = [
             os.path.join(directory, f)
             for f in os.listdir(directory)
@@ -131,7 +135,7 @@ class SlicesDataset(Dataset):
         ]
 
         if self.preload:
-            with ThreadPoolExecutor(max_workers=4) as executor:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
                 self.data = list(executor.map(np.load, self.file_paths))
 
     def __len__(self):
