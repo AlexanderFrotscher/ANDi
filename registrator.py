@@ -1,3 +1,7 @@
+"""
+Code from @FeliMe https://github.com/FeliMe/brain_sas_baseline/tree/main/utils/registrator.py
+"""
+
 import multiprocessing
 import os
 from time import time
@@ -25,7 +29,7 @@ from tqdm import tqdm
 class MRIRegistrator:
     def __init__(
         self,
-        template_path=os.path.join('/mnt/qb/work/baumgartner/bkc035', 'BrainAtlas/sri24_spm8/templates/T1_brain.nii'),
+        template_path=None,
         brain_mask_path=None,
         nbins=32,
         sampling_proportion=None,
@@ -274,7 +278,7 @@ class MRIRegistrator:
 class SitkRegistrator:
     def __init__(
         self,
-        template_path=os.path.join('/mnt/qb/work/baumgartner/bkc035', 'BrainAtlas/sri24_spm8/templates/T1_brain.nii'),
+        template_path=None,
     ):
         # Load fixed image
         if not os.path.exists(template_path):
