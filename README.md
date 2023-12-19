@@ -5,6 +5,7 @@ This repository contains the code for the [Unsupervised Anomaly Detection using 
 &nbsp;
 
 ![Workflow](andi_fig1.png)
+
 First, we train a DDPM model using our proposed Gaussian pyramidal noise on healthy brain slices to approximate the normative distribution. In order to obtain an anomaly map for a possibly anomalous image, we first partially noise it using the Gaussian forward process (indicated by the gray arrow). We then calculate the pixel-wise Euclidean distance between the ground truth backwards transition and the denoising step for a partial range of t. The denoising step towards can be thought of as normative diffusion as it is taking one step
 towards the normative distribution. Finally, using the geometric mean, we aggregate deviations over the time steps.
 
