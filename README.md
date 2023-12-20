@@ -26,4 +26,4 @@ Then, run the evaluation with [eval.py](eval.py) and the respective [config file
 This code is based on @dome272 implementation of DDPM's https://github.com/dome272/Diffusion-Models-pytorch .
 &nbsp;
 
-All baseline implementations can be found in the [baseline folder](baseline)
+All baseline implementations can be found in the [baselines folder](baselines)
