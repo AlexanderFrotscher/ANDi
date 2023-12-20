@@ -10,10 +10,10 @@ First, we train a DDPM model using our proposed Gaussian pyramidal noise on heal
 towards the normative distribution. Finally, using the geometric mean, we aggregate deviations over the time steps.
 
 ## Training
-For training we use the healthy slices of the BraTS21 data set. The data set can be found on [kaggle](https://www.kaggle.com/datasets/dschettler8845/brats-2021-task1). The volumes that belong to the training data can be found in the [splits](splits) directory. For training, you can generate the data set of the healthy preprocessed slices with the [split_healthy.py](split_healthy.py) script, or you can decide to perform the preprocessing within the [train.py](train.py) script. The configuration for the training run can be set in the respective [config file](conf/train.yml).
+For training, we use the healthy slices of the BraTS21 data set. The data set can be found on [Kaggle](https://www.kaggle.com/datasets/dschettler8845/brats-2021-task1). The volumes that belong to the training data can be found in the [splits](splits) directory. For training, you can generate the data set of the healthy preprocessed slices with the [split_healthy.py](split_healthy.py) script, or you can decide to perform the preprocessing within the [train.py](train.py) script. The configuration for the training run can be set in the respective [config file](conf/train.yml).
 
 ## Evaluation
-For the evaluation we use the test data from BraTS21 and two data sets from the [Shifts Challenge 2022](https://shifts.grand-challenge.org/). To match the volumes from Shifts to BraTS the [prepare_data.py](prepare_data.py) script needs to be used multiple times and the [SRI Atlas](https://www.nitrc.org/projects/sri24) needs to be downloaded:
+For the evaluation, we use the test data from BraTS21 and two data sets from the [Shifts Challenge 2022](https://shifts.grand-challenge.org/). To match the volumes from Shifts to BraTS the [prepare_data.py](prepare_data.py) script needs to be used multiple times and the [SRI Atlas](https://www.nitrc.org/projects/sri24) needs to be downloaded:
 
 * First, generate a patient folder for every Shifts data set by just using the -d flag of the [prepare_data.py](prepare_data.py) script
 * Second, register the volumes in the patient folder with the -r flag and the -t flag to specify the template (T1_brain.nii)
@@ -26,4 +26,4 @@ Then, run the evaluation with [eval.py](eval.py) and the respective [config file
 This code is based on @dome272 implementation of DDPM's https://github.com/dome272/Diffusion-Models-pytorch .
 &nbsp;
 
-All basline implementations can be found in the [baseline folder](basline)
+All baseline implementations can be found in the [baseline folder](baseline)
