@@ -3,12 +3,12 @@
 #
 # Eval Hyperparameters
 #
-dataset_path : "./data/BraTS21/"
-path_to_csv : "./splits/BraTS21/scans_test.csv"
+dataset_path : "../data/BraTS21/"
+path_to_csv : "../splits/BraTS21/scans_test.csv"
 workers : 2  # cpu data loaders
 seed : 73
-output : "./results/thresholding.csv"
-output_mf : "./results/thresholding_mf.csv"
+output : "../results/thresholding.csv"
+output_mf : "../results/thresholding_mf.csv"
 
 # params for optimal dice calculation
 thr_start: 0.8

@@ -3,14 +3,14 @@
 #
 # Eval Hyperparameters
 #
-dataset_path : "./data/BraTS21/"
-path_to_csv : "./splits/BraTS21/scans_train.csv"
+dataset_path : "../data/BraTS21/"
+path_to_csv : "../splits/BraTS21/scans_train.csv"
 batch_size : 1  # number of volumes load into the gpu
 size_splits: 155  # number of slices processed in gpu for each volume at the same time
 workers : 2  # cpu data loaders
 seed : 73
-output : "./results/AnoDDPM.csv"
-output_mf : "./results/AnoDDPM_mf.csv"
+output : "../results/AnoDDPM.csv"
+output_mf : "../results/AnoDDPM_mf.csv"
 
 # params for optimal dice calculation
 thr_start: 0.01

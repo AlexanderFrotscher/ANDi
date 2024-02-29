@@ -6,8 +6,8 @@
 run_name : DAE
 epochs : 19
 batch_size : 16
-dataset_path : "./data/BraTS21/"
-path_to_csv : "./splits/BraTS21/scans_train.csv"
+dataset_path : "../data/BraTS21/"
+path_to_csv : "../splits/BraTS21/scans_train.csv"
 workers : 4  # cpu data loaders
 lr: 0.0001
 

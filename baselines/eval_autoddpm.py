@@ -21,7 +21,7 @@ from utils import *
 
 
 def main():
-    with open("./conf/eval_auto.yml", "r") as file_object:
+    with open("../conf/eval_auto.yml", "r") as file_object:
         conf = yaml.load(file_object, Loader=yaml.SafeLoader)
         torch.manual_seed(conf["seed"])
 

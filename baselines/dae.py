@@ -95,7 +95,7 @@ def main():
     torch.backends.cudnn.benchmark = (
         True  # additional speed up if input size does not change
     )
-    with open("./conf/train_dae.yml", "r") as file_object:
+    with open("../conf/train_dae.yml", "r") as file_object:
         conf = yaml.load(file_object, Loader=yaml.SafeLoader)
 
         wandb.init(entity="team-frotscher", project=conf["run_name"], config=conf)
