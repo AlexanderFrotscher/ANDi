@@ -285,60 +285,65 @@ class preload_dataset(Dataset):
 
 
 def Brats21(conf, hist=False):
-    if conf['horizontal_flip'] != None:
-        my_transforms = transforms.Compose(
-            [
-                transforms.Resize(conf['size'], antialias=True),
-                transforms.RandomHorizontalFlip(conf['horizontal_flip'])
-            ]
-        )
+    if conf['preprocessing'] == True:
+        if conf['horizontal_flip'] != None:
+            my_transforms = transforms.Compose(
+                [
+                    transforms.Resize(conf['size'], antialias=True),
+                    transforms.RandomHorizontalFlip(conf['horizontal_flip'])
+                ]
+            )
+        else:
+            my_transforms = transforms.Compose(
+                [
+                    transforms.Resize(conf['size'], antialias=True),
+                ]
+            )
+        if conf['preload'] == True:
+            df = pd.read_csv(conf['path_to_csv'])
+            root_path = conf['dataset_path']
+            ids = df.loc[:, df.columns[0]]
+            my_slices = []
+            data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
+            for id in ids:
+                images = []
+                mask_path = os.path.join(root_path, id, id + "_seg.nii.gz")
+                mask = np.asarray(nib.load(mask_path).dataobj, dtype=int)
+                for data_type in data_types:
+                    img_path = os.path.join(conf['dataset_path'], id, id + data_type)
+                    img = np.asarray(nib.load(img_path).dataobj, dtype=float)
+                    images.append(img)
+
+                if hist == True:
+                    img = np.stack([x for x in images])
+                    img = hist_norm(img)
+
+                else:
+                    img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
+                    img = normalize_volume(img.float())
+
+                mask[mask >= 1] = 1
+                for i in range(img.shape[3]):
+                    my_slice = img[0, :, :, i]
+                    my_mask = mask[:, :, i]
+                    if torch.count_nonzero(my_slice) and 1 not in my_mask:  # filter out empty and slices containing an anomaly
+                        my_slices.append(img[:, :, :, i])
+            dataset = preload_dataset(my_slices, my_transforms)
+            dataloader = DataLoader(
+                dataset, batch_size=conf['batch_size'], num_workers=conf['workers'], shuffle=True
+            )
+        else:
+            df = pd.read_csv(conf['path_to_csv'])
+            dataset = BratsDataset(
+                df, my_transforms, conf['dataset_path'], conf['size'], hist=hist
+            )
+            dataloader = DataLoader(
+                dataset, batch_size=conf['batch_size'], num_workers=conf['workers'], shuffle=True
+            )
     else:
-        my_transforms = transforms.Compose(
-            [
-                transforms.Resize(conf['size'], antialias=True),
-            ]
-        )
-    if conf['preload'] == True:
-        df = pd.read_csv(conf['path_to_csv'])
-        root_path = conf['dataset_path']
-        ids = df.loc[:, df.columns[0]]
-        my_slices = []
-        data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
-        for id in ids:
-            images = []
-            mask_path = os.path.join(root_path, id, id + "_seg.nii.gz")
-            mask = np.asarray(nib.load(mask_path).dataobj, dtype=int)
-            for data_type in data_types:
-                img_path = os.path.join(conf['dataset_path'], id, id + data_type)
-                img = np.asarray(nib.load(img_path).dataobj, dtype=float)
-                images.append(img)
-
-            if hist == True:
-                img = np.stack([x for x in images])
-                img = hist_norm(img)
-
-            else:
-                img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
-                img = normalize_volume(img.float())
-
-            mask[mask >= 1] = 1
-            for i in range(img.shape[3]):
-                my_slice = img[0, :, :, i]
-                my_mask = mask[:, :, i]
-                if torch.count_nonzero(my_slice) and 1 not in my_mask:  # filter out empty and slices containing an anomaly
-                    my_slices.append(img[:, :, :, i])
-        dataset = preload_dataset(my_slices, my_transforms)
+        dataset = SlicesDataset(conf['dataset_path'],preload=conf['preload'],workers=conf['workers'])
         dataloader = DataLoader(
-            dataset, batch_size=conf['batch_size'], num_workers=conf['workers'], shuffle=True
-        )
-    else:
-        df = pd.read_csv(conf['path_to_csv'])
-        dataset = BratsDataset(
-            df, my_transforms, conf['dataset_path'], conf['size'], hist=hist
-        )
-        dataloader = DataLoader(
-            dataset, batch_size=conf['batch_size'], num_workers=conf['workers'], shuffle=True
-        )
+                dataset, batch_size=conf['batch_size'], num_workers=conf['workers'], shuffle=True)
     return dataloader
 
 

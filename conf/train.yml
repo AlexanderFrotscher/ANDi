@@ -18,8 +18,13 @@ ema_decay: 0.995
 horizontal_flip:  # leave empty if not needed
 
 
-# preload the data set? If no, the csv needs to contain the healthy slices
+# preload the data set? If False, the csv needs to contain the healthy slices
 preload: True
+
+
+# Preprocess the data? If False, there is no need for an additional .csv because the dataset_path points to the folder with
+# the preprocessed slices created by the split_healty.py script
+preprocessing: True
 
 
 # The checkpoints need to be given when continuing the training
