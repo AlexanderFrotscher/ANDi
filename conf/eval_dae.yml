@@ -1,0 +1,50 @@
+### conf/eval_dae.yml
+
+#
+# Eval Hyperparameters
+#
+dataset_path : "../data/BraTS21/"
+path_to_csv : "../splits/BraTS21/scans_test.csv"
+batch_size : 1  # number of volumes load into the gpu
+size_splits: 155  # number of slices processed in gpu for each volume at the same time
+workers : 2  # cpu data loaders
+seed : 73
+output : "../results/DAE.csv"
+output_mf : "../results/DAE_mf.csv"
+
+# params for optimal dice calculation
+thr_start: 0.01
+thr_end: 0.4
+thr_step: 0.001
+
+kernel_size: 5  # median filtering kernel
+rank: 3  # binary dilation rank for yen
+connectivity: 1  # binary dilation connectivity for yen
+
+#
+# DAE specific erroding (avg_pool) params for mask
+#
+pool_size: 5
+stride: 1
+pool_pad: 2
+mask_thr: 0.95
+
+
+#
+# Max, or mean between modalities
+#
+max: True  # False causes the usage of the mean
+
+#
+# Model Hyperparameters
+#
+model : 
+size : 128
+channels : 4
+depth: 4
+wf: 6
+padding: True
+
+
+
+

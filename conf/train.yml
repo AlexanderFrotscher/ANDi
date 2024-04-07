@@ -1,0 +1,62 @@
+### conf/train.yml
+
+#
+# Train Hyperparameters
+#
+run_name : DDPM-Pyramid
+epochs : 233
+batch_size : 128
+dataset_path : "./data/BraTS21/"
+path_to_csv : "./splits/BraTS21/scans_train.csv"
+workers : 4  # cpu data loaders
+start_lr : 2.0e-5
+target_lr : 1.0e-4
+warmup_steps: 0.05
+ema_decay: 0.995
+
+
+horizontal_flip:  # leave empty if not needed
+
+
+# preload the data set? If False, the csv needs to contain the healthy slices
+preload: True
+
+
+# Preprocess the data? If False, there is no need for an additional .csv because the dataset_path points to the folder with
+# the preprocessed slices created by the split_healty.py script
+preprocessing: True
+
+
+# The checkpoints need to be given when continuing the training
+train_continue : False
+model : 
+ema_model :
+opt :
+
+start_ckpt : 120  # first checkpoint that is safed, integer equals number of epochs
+save_ckpt : 4  # number of epochs between each checkpoint
+num_images : 3  # number of sampled images during training
+
+
+
+#
+# Model Hyperparameters
+#
+size : 128
+channels : 4
+
+
+#
+# Diffusion Hyperparameters
+#
+noise_steps: 1000
+beta_start: 1.0e-4
+beta_end: 0.02
+
+
+#
+# Noise type
+#
+pyramid : True
+simplex : False
+discount : 0.8  #only needed for pyramid noise

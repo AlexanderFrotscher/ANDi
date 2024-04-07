@@ -1,0 +1,53 @@
+### conf/eval.yml
+
+#
+# Eval Hyperparameters
+#
+dataset_path : "./data/BraTS21"
+path_to_csv : "./splits/BraTS21/scans_test.csv"
+batch_size : 1  # number of volumes load into the gpu
+size_splits: 155  # number of slices processed in gpu for each volume at the same time
+workers : 2  # cpu data loaders
+seed : 73
+output : "./results/ANDi.csv"
+output_mf : "./results/ANDi_mf.csv"
+
+# params for optimal dice calculation
+thr_start: 0.01
+thr_end: 0.3
+thr_step: 0.001
+
+kernel_size: 5  # median filtering kernel
+rank: 3  # binary dilation rank for yen
+connectivity: 1  # binary dilation connectivity for yen
+
+#
+# ANDi specific parameters
+#
+start: 75
+stop: 200
+gmean: True
+max: True
+
+#
+# Model Hyperparameters
+#
+model : 
+size : 128
+channels : 4
+
+
+#
+# Diffusion Hyperparameters
+#
+noise_steps: 1000
+beta_start: 1.0e-4
+beta_end: 0.02
+
+
+#
+# Noise type during eval
+#
+pyramid : False # can be False and the pyramid model can be used
+simplex : False # always False for ANDi
+discount : 0.8  #only needed for pyramid noise

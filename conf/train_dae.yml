@@ -1,0 +1,59 @@
+### conf/train_dae.yml
+
+#
+# Train Hyperparameters
+#
+run_name : DAE
+epochs : 19
+batch_size : 16
+dataset_path : "../data/BraTS21/"
+path_to_csv : "../splits/BraTS21/scans_train.csv"
+workers : 4  # cpu data loaders
+lr: 0.0001
+
+
+
+horizontal_flip:  # leave empty if not needed
+
+
+# preload the data set? If False, the csv needs to contain the healthy slices
+preload: True
+
+# Preprocess the data? If False, there is no need for an additional .csv because the dataset_path points to the folder with
+# the preprocessed slices created by the split_healty.py script
+preprocessing: True
+
+
+# The checkpoints need to be given when continuing the training
+train_continue : False
+model : 
+opt :
+
+
+save_ckpt : 2  # number of epochs between each checkpoint
+
+
+
+#
+# Model Hyperparameters
+#
+size : 128
+channels : 4
+depth: 4
+wf: 6
+padding: True
+
+#
+# Optimizer Hyperparameters
+#
+amsgrad: True
+weight_decay: 0.00001
+
+T_max : 100  # cosine annealing maximum number iter
+
+
+#
+# Noise Params
+#
+noise_size: 16
+noise_std : 0.2
