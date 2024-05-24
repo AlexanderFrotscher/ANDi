@@ -7,21 +7,12 @@ run_name : DAE
 epochs : 19
 batch_size : 16
 dataset_path : "../data/BraTS21/"
-path_to_csv : "../splits/BraTS21/scans_train.csv"
 workers : 4  # cpu data loaders
 lr: 0.0001
 
 
 
 horizontal_flip:  # leave empty if not needed
-
-
-# preload the data set? If False, the csv needs to contain the healthy slices
-preload: True
-
-# Preprocess the data? If False, there is no need for an additional .csv because the dataset_path points to the folder with
-# the preprocessed slices created by the split_healty.py script
-preprocessing: True
 
 
 # The checkpoints need to be given when continuing the training

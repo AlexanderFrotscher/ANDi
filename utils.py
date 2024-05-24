@@ -7,8 +7,10 @@ https://github.com/dome272/Diffusion-Models-pytorch
 """
 
 import os
+import pickle
 import random
 
+import lmdb
 import nibabel as nib
 import numpy as np
 import pandas as pd
@@ -16,23 +18,20 @@ import skimage.exposure as ex
 import torch
 import torch.nn as nn
 import torchvision
+import torchvision.transforms.functional as tf
 from matplotlib import pyplot as plt
 from PIL import Image
-from scipy.ndimage import median_filter
-from scipy.ndimage import grey_dilation
-from scipy.ndimage import binary_dilation
+from scipy.ndimage import binary_dilation, grey_dilation, median_filter
 from scipy.signal import medfilt2d
 from skimage.measure import label, regionprops
 from torch.nn import functional as F
-import torchvision.transforms.functional as tf
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor
 
 
 def plot_images(images, mode="RGB"):
-    if mode == "L": # mode L is gray scale
+    if mode == "L":  # mode L is gray scale
         batch_size = images.shape[0]
         channels = images.shape[1]
         images = images.reshape(
@@ -99,7 +98,7 @@ def upload_images(images, mode="RGB", **kwargs):
     numpy.array
         The array that can be uploaded to wandb
     """
-    if mode == "L": # mode L is gray scale
+    if mode == "L":  # mode L is gray scale
         batch_size = images.shape[0]
         channels = images.shape[1]
         images = images.reshape(
@@ -113,10 +112,10 @@ def upload_images(images, mode="RGB", **kwargs):
     return ndarr
 
 
-class SlicesDataset(Dataset):
-    """To load slices saved as numpy files (4, 128, 128) in a directory.
-    These numpy files are created by the split_healthy.py script.
-    These are all preprocessed slices, i.e. they are normalized.
+class LMDBDataset(Dataset):
+    """To load slices saved in a Lightning Memory-Mapped Database (LMDB).
+    The numpy files in the LMDB are created by the split_healthy.py script.
+    These are all preprocessed slices, i.e. they are normalized. Used for training.
 
     Parameters
     ----------
@@ -124,97 +123,56 @@ class SlicesDataset(Dataset):
         PyTorch class
     """
 
-    def __init__(self, directory, preload=False, workers = 4):
+    def __init__(self, directory: str, my_transforms: transforms):
         super().__init__()
-        self.preload = preload
-        self.workers = workers
-        self.file_paths = [
-            os.path.join(directory, f)
-            for f in os.listdir(directory)
-            if f.endswith(".npy")
-        ]
+        self.directory = directory
+        self.transforms = my_transforms
+        env = lmdb.open(
+            self.directory,
+            max_readers=1,
+            readonly=True,
+            lock=False,
+            readahead=False,
+            meminit=False,
+        )
+        with env.begin(write=False) as txn:
+            self.length = txn.stat()["entries"]
+        env.close()
 
-        if self.preload:
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                self.data = list(executor.map(np.load, self.file_paths))
+    def open_lmdb(self):
+        self.env = lmdb.open(
+            self.directory,
+            max_readers=1,
+            readonly=True,
+            lock=False,
+            readahead=False,
+            meminit=False,
+        )
+        self.txn = self.env.begin(write=False)
 
     def __len__(self):
-        return len(self.file_paths)
+        return self.length
 
-    def __getitem__(self, idx):
-        if self.preload:
-            array = self.data[idx]
-        else:
-            array = np.load(self.file_paths[idx])
+    def __getitem__(self, index):
+        if not hasattr(self, "txn"):
+            self.open_lmdb()
 
-        tensor = torch.from_numpy(array).float()
+        byteflow = self.txn.get(f"{index:08}".encode("ascii"))
+        unpacked = pickle.loads(byteflow)
+        tensor = torch.from_numpy(unpacked).float()
+        tensor = self.transforms(tensor)
         return tensor
 
 
-class BratsDataset(Dataset):
-    """The data set class to load individual slices from the files containing the volumes.
-    A .csv is requirred that specifies the slices to load from the volume. 
-
-    Parameters
-    ----------
-    Dataset : _type_
-        PyTorch class
-    """
-
-
-    def __init__(
-        self,
-        df: pd.DataFrame,
-        my_transforms: transforms,
-        dataset_path: str,
-        image_size: int,
-        hist: bool,
-    ):
-        self.df = df
-        self.transforms = my_transforms
-        self.dataset_path = dataset_path
-        self.image_size = image_size
-        self.hist = hist
-        self.data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
-
-    def __len__(self):
-        return self.df.shape[0]
-
-    def __getitem__(self, idx):
-        id_ = self.df.loc[idx, self.df.columns[0]]
-        images = []
-        slice = self.df.loc[idx, "Slice"]
-        for data_type in self.data_types:
-            img_path = os.path.join(self.dataset_path, id_, id_ + data_type)
-            img = np.asarray(nib.load(img_path).dataobj, dtype=float)
-            images.append(img)
-
-        mask_path = os.path.join(self.dataset_path, id_, id_ + "_seg.nii.gz")
-        mask = np.asarray(nib.load(mask_path).dataobj[:, :, slice], dtype=int)
-        mask[mask >= 1] = 1  # mask contains the labels 1, 2, and 4 for BraTS
-        mask = torch.from_numpy(mask)
-        mask = mask[None, :, :]
-        if self.hist == True:
-            img = np.stack([x for x in images])
-            img = hist_norm(img)
-        else:
-            img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
-            img = normalize_volume(img.float())
-        img = img[:, :, :, slice]
-        img = self.transforms(img)
-        my_transform = transforms.Resize(self.image_size, antialias=True)
-        mask = my_transform(mask)
-        return img, mask
-
-
 class MRIDataVolume(Dataset):
-    """The data set class to load and normalize complete volumes.
+    """The data set class to load and normalize complete volumes. Used for evaluation.
 
     Parameters
     ----------
     Dataset : _type_
         PyTorch class
     """
+
     def __init__(
         self,
         df: pd.DataFrame,
@@ -248,7 +206,9 @@ class MRIDataVolume(Dataset):
 
         mask_path = os.path.join(self.dataset_path, id_, patient_number + "_seg.nii.gz")
         mask = np.asarray(nib.load(mask_path).dataobj, dtype=float)
-        mask[mask > 0.5] = 1  # for data sets where the gt masks need to be registered a thr needs to be decided
+        mask[mask > 0.5] = (
+            1  # for data sets where the gt masks need to be registered a thr needs to be decided
+        )
         mask[mask < 1] = 0
         mask = torch.from_numpy(mask)
         mask = F.interpolate(mask[None, None], [128, 128, 155], mode="nearest-exact")
@@ -270,90 +230,33 @@ class MRIDataVolume(Dataset):
         return volume, mask
 
 
-class preload_dataset(Dataset):
-    def __init__(self, my_images: list, my_transforms: transforms):
-        self.transforms = my_transforms
-        self.images = my_images
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getitem__(self, idx):
-        img = self.images[idx]
-        img = self.transforms(img)
-        return img
-
-
-def Brats21(conf, hist=False):
-    if conf['preprocessing'] == True:
-        if conf['horizontal_flip'] != None:
-            my_transforms = transforms.Compose(
-                [
-                    transforms.Resize(conf['size'], antialias=True),
-                    transforms.RandomHorizontalFlip(conf['horizontal_flip'])
-                ]
-            )
-        else:
-            my_transforms = transforms.Compose(
-                [
-                    transforms.Resize(conf['size'], antialias=True),
-                ]
-            )
-        if conf['preload'] == True:
-            df = pd.read_csv(conf['path_to_csv'])
-            root_path = conf['dataset_path']
-            ids = df.loc[:, df.columns[0]]
-            my_slices = []
-            data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
-            for id in ids:
-                images = []
-                mask_path = os.path.join(root_path, id, id + "_seg.nii.gz")
-                mask = np.asarray(nib.load(mask_path).dataobj, dtype=int)
-                for data_type in data_types:
-                    img_path = os.path.join(conf['dataset_path'], id, id + data_type)
-                    img = np.asarray(nib.load(img_path).dataobj, dtype=float)
-                    images.append(img)
-
-                if hist == True:
-                    img = np.stack([x for x in images])
-                    img = hist_norm(img)
-
-                else:
-                    img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
-                    img = normalize_volume(img.float())
-
-                mask[mask >= 1] = 1
-                for i in range(img.shape[3]):
-                    my_slice = img[0, :, :, i]
-                    my_mask = mask[:, :, i]
-                    if torch.count_nonzero(my_slice) and 1 not in my_mask:  # filter out empty and slices containing an anomaly
-                        my_slices.append(img[:, :, :, i])
-            dataset = preload_dataset(my_slices, my_transforms)
-            dataloader = DataLoader(
-                dataset, batch_size=conf['batch_size'], num_workers=conf['workers'], shuffle=True
-            )
-        else:
-            df = pd.read_csv(conf['path_to_csv'])
-            dataset = BratsDataset(
-                df, my_transforms, conf['dataset_path'], conf['size'], hist=hist
-            )
-            dataloader = DataLoader(
-                dataset, batch_size=conf['batch_size'], num_workers=conf['workers'], shuffle=True
-            )
+def Brats21(conf):
+    if conf["horizontal_flip"] != None:
+        my_transforms = transforms.Compose(
+            [transforms.RandomHorizontalFlip(conf["horizontal_flip"])]
+        )
     else:
-        dataset = SlicesDataset(conf['dataset_path'],preload=conf['preload'],workers=conf['workers'])
-        dataloader = DataLoader(
-                dataset, batch_size=conf['batch_size'], num_workers=conf['workers'], shuffle=True)
+        my_transforms = transforms.Compose([])
+    dataset = LMDBDataset(conf["dataset_path"], my_transforms)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=conf["batch_size"],
+        num_workers=conf["workers"],
+        shuffle=True,
+    )
     return dataloader
 
 
 def MRI_Volume(conf, hist=False, shift=False):
-    df = pd.read_csv(conf['path_to_csv'])
+    df = pd.read_csv(conf["path_to_csv"])
     dataset = MRIDataVolume(
-        df, conf['dataset_path'], conf['size'], hist=hist, shift=shift
+        df, conf["dataset_path"], conf["size"], hist=hist, shift=shift
     )
     dataloader = DataLoader(
-        dataset, batch_size=conf['batch_size'], num_workers=conf['workers'], shuffle=False
+        dataset,
+        batch_size=conf["batch_size"],
+        num_workers=conf["workers"],
+        shuffle=False,
     )
     return dataloader
 
@@ -454,10 +357,7 @@ def random_transform_vectorized(tensor):
     # Random rotations for the entire batch
     angles = torch.randint(0, 24, (tensor.size(0),)) * 15
     sliced_tensor = torch.stack(
-        [
-            tf.rotate(tensor[i, :, :, :], angles[i].item())
-            for i in range(tensor.size(0))
-        ]
+        [tf.rotate(tensor[i, :, :, :], angles[i].item()) for i in range(tensor.size(0))]
     )
 
     # Random horizontal flip for the entire batch
@@ -473,6 +373,7 @@ def random_transform_vectorized(tensor):
             sliced_tensor[i, :, :, :] = tf.vflip(sliced_tensor[i, :, :, :])
 
     return sliced_tensor
+
 
 def median_filter_2D(volume, kernelsize=5):
     volume = volume.cpu().numpy()
@@ -529,6 +430,62 @@ def norm_tensor(tensor):
 def gmean(input_x, dim, keepdim=False):
     log_x = torch.log(input_x)
     return torch.exp(torch.mean(log_x, dim=dim, keepdim=keepdim))
+
+
+class BratsDataset(Dataset):
+    """DO NOT USE DEPRECATED CODE.
+    The data set class to load individual slices from the files containing the volumes.
+    A .csv is requirred that specifies the slices to load from the volume.
+
+    Parameters
+    ----------
+    Dataset : _type_
+        PyTorch class
+    """
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        my_transforms: transforms,
+        dataset_path: str,
+        image_size: int,
+        hist: bool,
+    ):
+        self.df = df
+        self.transforms = my_transforms
+        self.dataset_path = dataset_path
+        self.image_size = image_size
+        self.hist = hist
+        self.data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
+
+    def __len__(self):
+        return self.df.shape[0]
+
+    def __getitem__(self, idx):
+        id_ = self.df.loc[idx, self.df.columns[0]]
+        images = []
+        slice = self.df.loc[idx, "Slice"]
+        for data_type in self.data_types:
+            img_path = os.path.join(self.dataset_path, id_, id_ + data_type)
+            img = np.asarray(nib.load(img_path).dataobj, dtype=float)
+            images.append(img)
+
+        mask_path = os.path.join(self.dataset_path, id_, id_ + "_seg.nii.gz")
+        mask = np.asarray(nib.load(mask_path).dataobj[:, :, slice], dtype=int)
+        mask[mask >= 1] = 1  # mask contains the labels 1, 2, and 4 for BraTS
+        mask = torch.from_numpy(mask)
+        mask = mask[None, :, :]
+        if self.hist == True:
+            img = np.stack([x for x in images])
+            img = hist_norm(img)
+        else:
+            img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
+            img = normalize_volume(img.float())
+        img = img[:, :, :, slice]
+        img = self.transforms(img)
+        my_transform = transforms.Resize(self.image_size, antialias=True)
+        mask = my_transform(mask)
+        return img, mask
 
 
 def make_dicts(run_name):

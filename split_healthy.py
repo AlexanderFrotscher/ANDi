@@ -3,13 +3,15 @@ __email__ = "alexander.frotscher@student.uni-tuebingen.de"
 
 import argparse
 import os
+import pickle
 
+import lmdb
 import nibabel as nib
 import numpy as np
 import pandas as pd
 import torch
-from tqdm import tqdm
 from torchvision import transforms
+from tqdm import tqdm
 
 
 def normalize_volume(images):
@@ -35,39 +37,51 @@ def split_and_save(args):
     global_slices = []
     data_types = ["_flair.nii.gz", "_t1.nii.gz", "_t1ce.nii.gz", "_t2.nii.gz"]
     pbar = tqdm(ids)
+    map_size = 0
     for id in pbar:
-        my_ids = []
-        healthy_slices = []
-        my_slices = []
-        images = []
-        mask_path = os.path.join(root_path, id, id + "_seg.nii.gz")
-        mask = np.asarray(nib.load(mask_path).dataobj, dtype=int)
-        for data_type in data_types:
-            img_path = os.path.join(args.data_set, id, id + data_type)
-            img = np.asarray(nib.load(img_path).dataobj, dtype=float)
-            images.append(img)
-        img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
-        img = normalize_volume(img.float())
-        mask[mask >= 1] = 1
-        for i in range(img.shape[3]):
-            my_slice = img[0, :, :, i]
-            my_mask = mask[:, :, i]
-            if (
-                torch.count_nonzero(my_slice) and 1 not in my_mask
-            ):  # filter out empty and slices containing an anomaly
-                my_ids.append(id)
-                healthy_slices.append(i)
-                if args.save == True:
-                    my_slices.append(img[:, :, :, i])
-        if args.save == True:
-            for patient, slice, data in zip(my_ids, healthy_slices, my_slices):
-                my_data = my_transform(data)
-                my_data = my_data.numpy()
-                np.save(
-                    f"{args.data_set}/healthy_slices/{patient}_{slice}.npy", my_data
-                )
-        global_ids.extend(my_ids)
-        global_slices.extend(healthy_slices)
+        map_size += (
+            sum(
+                d.stat().st_size
+                for d in os.scandir(os.path.join(args.data_set, id))
+                if d.is_file()
+            )
+            * 2
+        )
+    env = lmdb.open(str(f"{args.data_set}/healthy_slices"), map_size=map_size)
+    with env.begin(write=True) as txn:
+        num = 0
+        for id in pbar:
+            my_ids = []
+            healthy_slices = []
+            my_slices = []
+            images = []
+            mask_path = os.path.join(root_path, id, id + "_seg.nii.gz")
+            mask = np.asarray(nib.load(mask_path).dataobj, dtype=int)
+            for data_type in data_types:
+                img_path = os.path.join(args.data_set, id, id + data_type)
+                img = np.asarray(nib.load(img_path).dataobj, dtype=float)
+                images.append(img)
+            img = torch.stack([torch.from_numpy(x) for x in images], dim=0)
+            img = normalize_volume(img.float())
+            mask[mask >= 1] = 1
+            for i in range(img.shape[3]):
+                my_slice = img[0, :, :, i]
+                my_mask = mask[:, :, i]
+                if (
+                    torch.count_nonzero(my_slice) and 1 not in my_mask
+                ):  # filter out empty and slices containing an anomaly
+                    my_ids.append(id)
+                    healthy_slices.append(i)
+                    my_slices.append(img[None, :, :, :, i])
+            my_slices = torch.cat(my_slices)
+            my_slices = my_transform(my_slices).numpy()
+            for data in my_slices:
+                key = f"{num:08}"
+                num += 1
+                txn.put(key.encode("ascii"), pickle.dumps(data))
+            global_ids.extend(my_ids)
+            global_slices.extend(healthy_slices)
+    env.close()
     healthy_dict = {df.columns[0]: global_ids, "Slice": global_slices}
     df_healthy = pd.DataFrame(healthy_dict)
     df_healthy.to_csv(args.output_file, index=False)
@@ -98,14 +112,6 @@ if __name__ == "__main__":
         required=True,
         metavar="",
         help="The .csv path for the file that specifies the healthy slices.",
-    )
-    parser.add_argument(
-        "-s",
-        "--save",
-        type=bool,
-        default=False,
-        metavar="",
-        help="Flag that decides if the healthy slices slices should be stored in a seperate folder.",
     )
     parser.add_argument(
         "-r",

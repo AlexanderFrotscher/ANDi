@@ -30,8 +30,16 @@ Subject_2
 ...
 ```
 
+## Preprocessing
+For training, we use the slices of the BraTS21 data set that do not contain an anomaly according to their segmentation. The data set can be found on [Kaggle](https://www.kaggle.com/datasets/dschettler8845/brats-2021-task1). The volumes that belong to the specific splits that we used can be found in the [splits](splits) directory. For training, you need to generate the Lightning Memory-Mapped Database of the preprocessed slices with the [split_healthy.py](split_healthy.py) script.
+
+
+```
+python3 split_healthy.py -d ./data/BraTS21 -i ./splits/BraTS21/scans_train.csv -o ./data/BraTS21/healthy_slices_train.csv
+```
+
 ## Training
-For training, we use the slices of the BraTS21 data set that do not contain an anomaly according to their segmentation. The data set can be found on [Kaggle](https://www.kaggle.com/datasets/dschettler8845/brats-2021-task1). The volumes that belong to the specific splits that we used can be found in the [splits](splits) directory. For training, you can generate the data set of the preprocessed slices with the [split_healthy.py](split_healthy.py) script, or you can decide to perform the preprocessing within the [train.py](train.py) script. The configuration for the training run can be set in the respective [config file](conf/train.yml) and then the training can be started with:
+The configuration for the training run can be set in the respective [config file](conf/train.yml). You need to specify the path to the created LMDB and the hyperparameters you want to use. Then the training can be started with:
 
 ```
 accelerate launch train.py
