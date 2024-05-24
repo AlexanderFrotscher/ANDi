@@ -169,7 +169,7 @@ class Diffusion:
                 )
                 x = x.view(n, x.shape[1] // n, self.img_size, self.img_size)
             elif pyramid == True:
-                x = pyramid_noise_like(n, channels, self.img_size, discount, x.device)
+                x = pyramid_noise_like(n, channels, self.img_size, discount, self.device)
             else:
                 x = torch.randn((n, channels, self.img_size, self.img_size)).to(
                     self.device
