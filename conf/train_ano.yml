@@ -1,0 +1,52 @@
+### conf/train.yml
+
+#
+# Train Hyperparameters
+#
+run_name : DDPM-Simplex
+epochs : 233
+batch_size : 128
+dataset_path : "./data/BraTS21/"
+workers : 4  # cpu data loaders
+start_lr : 2.0e-5
+target_lr : 7.0e-5
+warmup_steps: 0.05
+ema_decay: 0.995
+
+
+horizontal_flip:  # leave empty if not needed
+
+
+# The checkpoints need to be given when continuing the training
+train_continue : False
+model : 
+ema_model :
+opt :
+
+start_ckpt : 120  # first checkpoint that is safed, integer equals number of epochs
+save_ckpt : 4  # number of epochs between each checkpoint
+num_images : 3  # number of sampled images during training
+
+
+
+#
+# Model Hyperparameters
+#
+size : 128
+channels : 4
+
+
+#
+# Diffusion Hyperparameters
+#
+noise_steps: 1000
+beta_start: 1.0e-4
+beta_end: 0.02
+
+
+#
+# Noise type
+#
+pyramid : False
+simplex : True
+discount : 0.8  #only needed for pyramid noise
